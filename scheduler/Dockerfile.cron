@@ -1,0 +1,18 @@
+# Usa un'immagine leggera di base
+FROM alpine:3.18
+
+# Installa cron, curl, jq e tzdata per la gestione dei fusi orari
+RUN apk add --no-cache dcron curl jq tzdata
+
+# Imposta un TZ di default (può essere sovrascritto da compose)
+ENV TZ=UTC
+
+# File crontab: esegui lo scheduler ogni minuto
+RUN echo "* * * * * /usr/local/bin/run-cron.sh" > /var/spool/cron/crontabs/root
+
+# Copia lo script
+COPY run-cron.sh /usr/local/bin/run-cron.sh
+RUN chmod +x /usr/local/bin/run-cron.sh
+
+# Avvia cron in foreground (livello log 8)
+CMD ["crond", "-f", "-d", "8"]

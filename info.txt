@@ -1,0 +1,7 @@
+per l'app scheduler
+mappare 
+- per la configurazione
+/src/app/config
+
+- per il file con gli odg (combined.json)
+/src/ext_odg sulla cartella dove l'altro docker esporta gli odg

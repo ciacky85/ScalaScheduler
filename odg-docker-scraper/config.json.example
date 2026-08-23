@@ -1,0 +1,9 @@
+{
+  "urls": [
+    "https://erp.teatroallascala.org/pianificazione11/faces/DSSC/pxf_dspagine_coro.xhtml?pps=0",
+    "https://erp.teatroallascala.org/pianificazione11/faces/DSSC/pxf_dspagine_coro.xhtml?pps=1"
+  ],
+  "output_file": "/data/odg_structured.json",
+  "schedules": ["07:00", "21:00"],
+  "run_on_start": true
+}

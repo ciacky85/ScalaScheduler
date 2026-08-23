@@ -1,0 +1,35 @@
+# Dipendenze
+node_modules
+
+# File di build
+.next
+dist
+build
+
+# Log di debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# File di ambiente locale
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Cache di Next.js
+.next/cache
+
+# File di configurazione degli editor
+.vscode
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# File di sistema operativo
+.DS_Store
+Thumbs.db

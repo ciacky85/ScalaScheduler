@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chorus-calendar-sync
+    ports:
+      - "3000:3000"
+    volumes:
+      # Monta i file di configurazione e log per renderli accessibili e persistenti
+      - ./src/app/config:/app/src/app/config:ro
+      - ./public:/app/public
+    restart: unless-stopped
+
+  cron-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.cron
+    container_name: chorus-calendar-cron
+    depends_on:
+      - app
+    volumes:
+      - ./src/app/config/odg_update_time.json:/etc/config/odg_update_time.json:ro
+    restart: unless-stopped

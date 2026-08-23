@@ -1,0 +1,20 @@
+{
+  "importaCalendario": [
+    {
+      "id": "cal-import-default-1",
+      "label": "Tenori_test",
+      "calendarId": "98421e11d931c4fb52df153d4c779381aa14a9b88f839771e1d83ad8bed530f5@group.calendar.google.com",
+      "tipo": "importaCalendario",
+      "predefinito": true
+    }
+  ],
+  "odg": [
+    {
+      "id": "cal-odg-default-1",
+      "label": "ODG - TEST",
+      "calendarId": "42f8d099295f7ee280c91dbeb90b0c7fa7ed172927e1c68b2a75724e6290335b@group.calendar.google.com",
+      "tipo": "odg",
+      "predefinito": true
+    }
+  ]
+}

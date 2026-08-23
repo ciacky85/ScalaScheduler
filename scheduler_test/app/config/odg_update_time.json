@@ -1,0 +1,10 @@
+{
+  "description": "Orari in formato HH:mm nel fuso indicato. Lasciare 'timezone' mancante per usare $TZ del container.",
+  "timezone": "Europe/Rome",
+  "update_times": [
+    "00:05",
+    "08:05",
+    "12:25",
+    "21:05"
+  ]
+}
