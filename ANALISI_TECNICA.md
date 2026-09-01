@@ -4,7 +4,7 @@
 > **Autore**: ciacky85 (Carlo)
 > **Scopo**: Estrarre gli eventi dai programmi di lavoro del Coro del Teatro alla Scala (PDF e pagine web) e sincronizzarli su calendari Google tramite Service Account. Archiviare screenshot degli ODG su Google Drive.
 > **Data analisi**: 01/09/2026
-> **Ultimo aggiornamento**: 01/09/2026 — Aggiunte: gestione note a piè di pagina (asterischi), integrazione Google Drive screenshot
+> **Ultimo aggiornamento**: 01/09/2026 — Monorepo unificato, Stack Portainer, gestione note asterischi, Google Drive screenshot, ODG Scraper Manager UI e fix SSR hydration/client rendering
 
 ---
 
