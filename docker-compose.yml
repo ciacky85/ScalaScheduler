@@ -8,7 +8,6 @@ services:
     build:
       context: ./scheduler
       dockerfile: Dockerfile
-    image: ciacky85/scala-scheduler:latest
     container_name: ScalaScheduler
     restart: unless-stopped
     ports:
@@ -17,7 +16,7 @@ services:
       - TZ=Europe/Rome
       - NODE_ENV=production
     volumes:
-      # Configurazioni WebApp (calendari, drive_config, service-account-key)
+      # Configurazioni WebApp (calendari, drive_config, service-account-key, users.json)
       - /srv/docker_conf/configs/ScalaScheduler/config:/app/config
       - /srv/docker_conf/configs/ScalaScheduler/config:/app/src/app/config
       # Volume dati condiviso con lo scraper (odg_structured.json, config.json, screenshot)
@@ -32,7 +31,6 @@ services:
     build:
       context: ./odg-docker-scraper
       dockerfile: Dockerfile
-    image: ciacky85/odg-scraper:latest
     container_name: odg-scraper
     restart: unless-stopped
     environment:
