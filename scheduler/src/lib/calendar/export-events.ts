@@ -77,7 +77,8 @@ export async function exportEventsToGoogleCalendar(
               if (apiError) {
                   errorMessage += ` Dettaglio API: ${apiError.message} (codice: ${apiError.code}).`;
                   if (apiError.code === 404) {
-                      errorMessage += ` Controlla che l'ID del calendario sia corretto e che l'email del service account (${serviceAccount.client_email}) sia stata invitata a gestire gli eventi su quel calendario.`;
+                      const sa = getServiceAccount();
+                      errorMessage += ` Controlla che l'ID del calendario sia corretto e che l'email del service account (${sa.client_email || 'Service Account'}) sia stata invitata a gestire gli eventi su quel calendario.`;
                   }
               } else {
                   errorMessage += ` ${e.message}`;
@@ -141,7 +142,8 @@ export async function exportEventsToGoogleCalendar(
               if (apiError) {
                   errorMessage += ` Dettaglio API: ${apiError.message} (codice: ${apiError.code}).`;
                   if (apiError.code === 404) {
-                      errorMessage += ` Controlla che l'ID del calendario sia corretto e che l'email del service account (${serviceAccount.client_email}) sia stata invitata a gestire gli eventi su quel calendario.`;
+                      const sa = getServiceAccount();
+                      errorMessage += ` Controlla che l'ID del calendario sia corretto e che l'email del service account (${sa.client_email || 'Service Account'}) sia stata invitata a gestire gli eventi su quel calendario.`;
                   }
               } else {
                   errorMessage += ` ${e.message}`;

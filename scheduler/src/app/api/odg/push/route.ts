@@ -4,7 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { google } from 'googleapis';
 import { JWT } from 'google-auth-library';
-import serviceAccount from '@/app/config/service-account-key.json';
+import { getServiceAccount } from '@/lib/drive/google-drive';
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { add, format, parseISO, startOfDay, endOfDay } from 'date-fns';
@@ -66,12 +66,14 @@ const log = async (message: string) => {
   }
 };
 
-const createAuth = () =>
-  new JWT({
-    email: serviceAccount.client_email,
-    key: serviceAccount.private_key,
+const createAuth = () => {
+  const sa = getServiceAccount();
+  return new JWT({
+    email: sa.client_email || '',
+    key: sa.private_key || '',
     scopes: ['https://www.googleapis.com/auth/calendar'],
   });
+};
 
 const sha1 = (data: string): string => createHash('sha1').update(data).digest('hex');
 const normalizeForUid = (s: string | null | undefined) =>

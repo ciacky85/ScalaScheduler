@@ -138,17 +138,19 @@ export async function verifyDriveFolderAccess(folderId: string): Promise<{ ok: b
       folderName: file.name || 'Cartella Google Drive',
     };
   } catch (error: any) {
+    const sa = getServiceAccount();
+    const saEmail = sa.client_email || 'Service Account';
     const errorMsg = error?.response?.data?.error?.message || error.message || 'Errore di connessione a Google Drive.';
     if (error?.response?.status === 404) {
       return {
         ok: false,
-        error: `Cartella non trovata (404). Verifica che il link sia corretto e che la cartella sia stata condivisa con l'account di servizio (${serviceAccount.client_email}) con permessi di Editor.`,
+        error: `Cartella non trovata (404). Verifica che il link sia corretto e che la cartella sia stata condivisa con l'account di servizio (${saEmail}) con permessi di Editor.`,
       };
     }
     if (error?.response?.status === 403) {
       return {
         ok: false,
-        error: `Permesso negato (403). Assicurati che l'account di servizio (${serviceAccount.client_email}) sia stato aggiunto come Editor alla cartella.`,
+        error: `Permesso negato (403). Assicurati che l'account di servizio (${saEmail}) sia stato aggiunto come Editor alla cartella.`,
       };
     }
     return { ok: false, error: errorMsg };
