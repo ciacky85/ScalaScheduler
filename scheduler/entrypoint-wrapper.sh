@@ -11,4 +11,8 @@ echo Europe/Rome >/etc/timezone || true
 export TZ=Europe/Rome
 chmod +x /app/run-cron.sh 2>/dev/null || true
 node /app/cron-runner.js >> /app/cron-runner.log 2>&1 &
-exec npm start
+if [ -f "/app/server.js" ]; then
+  exec node /app/server.js
+else
+  exec npm start
+fi
