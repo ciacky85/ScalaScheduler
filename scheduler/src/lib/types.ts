@@ -23,8 +23,9 @@ export interface ImpostazioniCalendario {
   calendarId: string; // id effettivo Google Calendar
   tipo: 'importaCalendario' | 'odg';
   predefinito?: boolean;
-  ownerId?: string;   // ID o Username dell'utente proprietario (dal file calendars.json)
-  ownerName?: string; // Nome visualizzato del proprietario
+  ownerUserId?: string; // ID dell'utente proprietario (es. 98ab1ad9-ef50-4844-b152-c12ad2756910)
+  ownerId?: string;     // Alias retrocompatibile
+  ownerName?: string;   // Nome visualizzato del proprietario (es. Alberto Rota)
 }
 
 export interface AppSettings {

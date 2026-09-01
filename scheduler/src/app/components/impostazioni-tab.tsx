@@ -99,9 +99,13 @@ const CalendarSettingsSection = ({
                   <TableCell className="font-medium">{cal.label}</TableCell>
                   <TableCell className="font-code text-xs truncate max-w-xs">{cal.calendarId}</TableCell>
                   <TableCell>
-                    {cal.ownerId ? (
+                    {cal.ownerName ? (
+                      <Badge variant="outline" className="font-sans text-xs bg-primary/5 text-primary border-primary/20">
+                        {cal.ownerName}
+                      </Badge>
+                    ) : cal.ownerUserId ? (
                       <Badge variant="outline" className="font-mono text-xs">
-                        {cal.ownerName ? `${cal.ownerName} (${cal.ownerId})` : cal.ownerId}
+                        {cal.ownerUserId}
                       </Badge>
                     ) : (
                       <span className="text-xs text-muted-foreground italic">Tutti (Globale)</span>
@@ -169,17 +173,32 @@ function CalendarEditModal({ isOpen, onClose, onSave, calendar, defaultTipo }: C
     const [label, setLabel] = useState(calendar?.label || '');
     const [calendarId, setCalendarId] = useState(calendar?.calendarId || '');
     const [tipo, setTipo] = useState(calendar?.tipo || defaultTipo);
-    const [ownerId, setOwnerId] = useState(calendar?.ownerId || '');
+    const [ownerUserId, setOwnerUserId] = useState(calendar?.ownerUserId || calendar?.ownerId || '');
+    const [usersList, setUsersList] = useState<Array<{ id: string; nome: string; username: string; email?: string }>>([]);
+
+    useEffect(() => {
+      fetch('/api/admin/users')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && Array.isArray(data.users)) {
+            setUsersList(data.users);
+          }
+        })
+        .catch(() => {});
+    }, []);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        const selectedUser = usersList.find(u => u.id === ownerUserId || u.username === ownerUserId);
         onSave({
             id: calendar?.id || '',
             label,
             calendarId,
             tipo,
             predefinito: calendar?.predefinito || false,
-            ownerId: ownerId.trim() || undefined,
+            ownerUserId: ownerUserId.trim() || undefined,
+            ownerId: ownerUserId.trim() || undefined,
+            ownerName: selectedUser ? selectedUser.nome : calendar?.ownerName,
         });
     };
 
@@ -189,7 +208,7 @@ function CalendarEditModal({ isOpen, onClose, onSave, calendar, defaultTipo }: C
                 <DialogHeader>
                     <DialogTitle>{calendar ? 'Modifica Calendario' : 'Aggiungi Calendario'}</DialogTitle>
                     <DialogDescription>
-                        Inserisci i dettagli per il calendario Google e associa il proprietario.
+                        Inserisci i dettagli per il calendario Google e associa il proprietario (Owner).
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -202,13 +221,29 @@ function CalendarEditModal({ isOpen, onClose, onSave, calendar, defaultTipo }: C
                         <Input id="calendarId" value={calendarId} onChange={(e) => setCalendarId(e.target.value)} required />
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="ownerId">Proprietario (Owner ID / Username)</Label>
-                        <Input
-                          id="ownerId"
-                          placeholder="es. admin, mario.rossi (lascia vuoto per tutti)"
-                          value={ownerId}
-                          onChange={(e) => setOwnerId(e.target.value)}
-                        />
+                        <Label htmlFor="ownerUserId">Proprietario Calendario (Owner)</Label>
+                        {usersList.length > 0 ? (
+                          <select
+                            id="ownerUserId"
+                            className="w-full p-2 text-sm rounded-md border bg-background"
+                            value={ownerUserId}
+                            onChange={(e) => setOwnerUserId(e.target.value)}
+                          >
+                            <option value="">-- Nessun proprietario specifico (Tutti) --</option>
+                            {usersList.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.nome} ({u.username})
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Input
+                            id="ownerUserId"
+                            placeholder="ID utente o username"
+                            value={ownerUserId}
+                            onChange={(e) => setOwnerUserId(e.target.value)}
+                          />
+                        )}
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="tipo">Tipo</Label>

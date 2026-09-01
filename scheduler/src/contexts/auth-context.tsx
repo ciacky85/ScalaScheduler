@@ -99,16 +99,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (cal && typeof cal === 'object') {
-      const owner = String(cal.ownerId || '').trim().toLowerCase();
+      const owner = String(cal.ownerUserId || cal.ownerId || '').trim().toLowerCase();
       const uId = String(user.id || '').trim().toLowerCase();
       const uName = String(user.username || '').trim().toLowerCase();
+      const uEmail = String(user.email || '').trim().toLowerCase();
 
-      // Se l'utente è il proprietario del calendario (ownerId)
-      if (owner && (owner === uId || owner === uName)) {
+      // 1. Se l'utente è il proprietario del calendario (ownerUserId == user.id / username / email)
+      if (owner && (owner === uId || owner === uName || (uEmail && owner === uEmail))) {
         return true;
       }
 
-      // Se è presente nei calendari assegnati all'utente
+      // 2. Se il calendarId o id interno è presente nei calendari assegnati all'utente
       if (assigned.includes(cal.calendarId) || assigned.includes(cal.id)) {
         return true;
       }
