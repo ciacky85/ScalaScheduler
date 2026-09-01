@@ -347,13 +347,13 @@ export default function Home() {
       {/* CONTENUTO PRINCIPALE */}
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
         <Tabs defaultValue="import" className="w-full">
-          <TabsList className={`grid w-full gap-1 ${isAdmin ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-3'}`}>
+          <TabsList className={`grid w-full gap-1 ${isAdmin ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2'}`}>
             <TabsTrigger value="import" aria-label="Importa Calendario">Importa Calendario</TabsTrigger>
             <TabsTrigger value="odg" aria-label="Ordine del Giorno">ODG</TabsTrigger>
-            <TabsTrigger value="settings" aria-label="Impostazioni">Impostazioni</TabsTrigger>
             
             {isAdmin && (
               <>
+                <TabsTrigger value="settings" aria-label="Impostazioni">Impostazioni</TabsTrigger>
                 <TabsTrigger value="scraper" aria-label="ODG Scraper Manager" className="flex items-center gap-1.5">
                   <Bot className="h-3.5 w-3.5 text-amber-500" />
                   <span>Scraper</span>
@@ -385,12 +385,14 @@ export default function Home() {
             </TabErrorBoundary>
           </TabsContent>
 
-          {/* TAB 3: IMPOSTAZIONI */}
-          <TabsContent value="settings">
-            <TabErrorBoundary tabName="Impostazioni">
-              <ImpostazioniTab />
-            </TabErrorBoundary>
-          </TabsContent>
+          {/* TAB 3: IMPOSTAZIONI (SOLO ADMIN) */}
+          {isAdmin && (
+            <TabsContent value="settings">
+              <TabErrorBoundary tabName="Impostazioni">
+                <ImpostazioniTab />
+              </TabErrorBoundary>
+            </TabsContent>
+          )}
 
           {/* TAB 4: ODG SCRAPER MANAGER (SOLO ADMIN) */}
           {isAdmin && (
