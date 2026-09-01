@@ -1,4 +1,3 @@
-cat > /app/cron-runner.js <<'JS'
 const fs = require('fs');
 const { exec } = require('child_process');
 const path = require('path');
@@ -24,28 +23,23 @@ function loadCfg() {
 }
 
 function hhmm(tz) {
-  try {
-    return new Intl.DateTimeFormat('en-GB', {
-      hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz
-    }).format(new Date());
-  } catch {
-    const d = new Date();
-    return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-  }
+  const d = new Date();
+  const s = d.toLocaleTimeString('it-IT', { timeZone: tz, hour12: false });
+  const [h, m] = s.split(':');
+  return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
 }
 
 function minuteKey(tz) {
-  return new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz
-  }).format(new Date());
+  const d = new Date();
+  const iso = d.toLocaleString('sv-SE', { timeZone: tz }).replace(' ', 'T');
+  return iso.slice(0, 16);
 }
 
 function run() {
-  exec(`sh "${RUN}"`, { env: process.env }, (err, stdout, stderr) => {
-    if (stdout) process.stdout.write(`[cron-runner] ${stdout}`);
-    if (stderr) process.stderr.write(`[cron-runner] ${stderr}`);
-    if (err) console.error('[cron-runner] ERROR', err.message);
+  exec(RUN, (err, stdout, stderr) => {
+    if (err) console.error(`[cron-runner] ERROR: ${err.message}`);
+    if (stdout && stdout.trim()) console.log(`[cron-runner] STDOUT: ${stdout.trim()}`);
+    if (stderr && stderr.trim()) console.error(`[cron-runner] STDERR: ${stderr.trim()}`);
   });
 }
 
@@ -68,4 +62,3 @@ function tick() {
 
 setInterval(tick, POLL * 1000);
 tick();
-JS

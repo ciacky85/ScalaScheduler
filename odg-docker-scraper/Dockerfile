@@ -10,6 +10,8 @@ ARG BUILD_TS
 LABEL build.ts="${BUILD_TS}"
 
 COPY main.py /app/main.py
+COPY drive_uploader.py /app/drive_uploader.py
 VOLUME ["/data"]
 ENV TZ=Europe/Rome
 CMD ["python", "/app/main.py"]
+
