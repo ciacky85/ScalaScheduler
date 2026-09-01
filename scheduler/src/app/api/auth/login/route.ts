@@ -1,18 +1,22 @@
 import { NextResponse } from 'next/server';
-import { getUserByUsername, verifyPassword, toUserProfile, updateUser } from '@/lib/auth/users-store';
+import { getUserByUsername, verifyUserCredentials, toUserProfile, updateUser } from '@/lib/auth/users-store';
 import { setSessionCookie } from '@/lib/auth/session';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { username, password } = body;
+    const rawUsername = body?.username;
+    const rawPassword = body?.password;
 
-    if (!username || !password) {
+    if (!rawUsername || !rawPassword) {
       return NextResponse.json(
         { ok: false, error: 'Username e password sono obbligatori.' },
         { status: 400 }
       );
     }
+
+    const username = String(rawUsername).trim();
+    const password = String(rawPassword);
 
     const user = await getUserByUsername(username);
     if (!user) {
@@ -22,7 +26,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const isValid = verifyPassword(password, user.passwordHash, user.salt);
+    const isValid = verifyUserCredentials(password, user);
     if (!isValid) {
       return NextResponse.json(
         { ok: false, error: 'Credenziali non valide.' },
