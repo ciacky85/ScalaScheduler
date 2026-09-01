@@ -1,10 +1,12 @@
 'use client';
+
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ImpostazioniTab from '@/app/components/impostazioni-tab';
 import ImportaCalendarioTab from '@/app/components/importa-calendario-tab';
 import OdgTab from '@/app/components/odg-tab';
 import ScraperManagerTab from '@/app/components/scraper-manager-tab';
+import { TabErrorBoundary } from '@/app/components/error-boundary';
 import { CalendarDays, Bot } from 'lucide-react';
 import type { RigaCalendario } from '@/lib/types';
 
@@ -35,26 +37,37 @@ export default function Home() {
               <span>Scraper (Admin)</span>
             </TabsTrigger>
           </TabsList>
+
           <TabsContent value="import">
-            <ImportaCalendarioTab
-              parsedData={parsedData}
-              setParsedData={setParsedData}
-              isLoading={isLoading}
-              setIsLoading={setIsLoading}
-            />
+            <TabErrorBoundary tabName="Importa Calendario">
+              <ImportaCalendarioTab
+                parsedData={parsedData}
+                setParsedData={setParsedData}
+                isLoading={isLoading}
+                setIsLoading={setIsLoading}
+              />
+            </TabErrorBoundary>
           </TabsContent>
+
           <TabsContent value="odg">
-            <OdgTab />
+            <TabErrorBoundary tabName="Ordine del Giorno (ODG)">
+              <OdgTab />
+            </TabErrorBoundary>
           </TabsContent>
+
           <TabsContent value="settings">
-            <ImpostazioniTab />
+            <TabErrorBoundary tabName="Impostazioni">
+              <ImpostazioniTab />
+            </TabErrorBoundary>
           </TabsContent>
+
           <TabsContent value="scraper">
-            <ScraperManagerTab />
+            <TabErrorBoundary tabName="ODG Scraper (Admin)">
+              <ScraperManagerTab />
+            </TabErrorBoundary>
           </TabsContent>
         </Tabs>
       </main>
     </div>
   );
 }
-
