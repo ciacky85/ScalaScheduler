@@ -1,2 +1,32 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js build output
+.next/
+out/
+build/
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files & Secrets
+.env
+.env*.local
+*.env
 *service-account-key.json*
 Docker Istruzioni.txt
+
+# Local uploads and data
+odg_shots/
+/data/
+*.tsbuildinfo
+
+# OS files
+.DS_Store
+Thumbs.db

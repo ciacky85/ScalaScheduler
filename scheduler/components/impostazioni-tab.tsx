@@ -193,6 +193,82 @@ function CalendarEditModal({ isOpen, onClose, onSave, calendar, defaultTipo }: C
 
 export default function ImpostazioniTab() {
   const { settings, updateSettings, isLoaded } = useSettings();
+  const [driveUrl, setDriveUrl] = useState<string>('');
+  const [salvaLocale, setSalvaLocale] = useState<boolean>(true);
+  const [isTestingDrive, setIsTestingDrive] = useState<boolean>(false);
+  const [driveStatus, setDriveStatus] = useState<{ type: 'idle' | 'success' | 'error'; message: string }>({
+    type: 'idle',
+    message: '',
+  });
+
+  // Carica la configurazione Google Drive dal backend al mount
+  React.useEffect(() => {
+    fetch('/api/settings/drive')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.ok && data.config) {
+          setDriveUrl(data.config.googleDriveFolderUrl || settings.googleDriveFolderUrl || '');
+          setSalvaLocale(data.config.salvaAncheInLocale !== undefined ? data.config.salvaAncheInLocale : (settings.salvaAncheInLocale ?? true));
+        }
+      })
+      .catch(() => {
+        setDriveUrl(settings.googleDriveFolderUrl || '');
+        setSalvaLocale(settings.salvaAncheInLocale ?? true);
+      });
+  }, [settings.googleDriveFolderUrl, settings.salvaAncheInLocale]);
+
+  const handleSaveDriveSettings = async (testConnection: boolean = false) => {
+    setIsTestingDrive(true);
+    setDriveStatus({ type: 'idle', message: '' });
+
+    try {
+      const res = await fetch('/api/settings/drive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          googleDriveFolderUrl: driveUrl,
+          salvaAncheInLocale: salvaLocale,
+          testConnection: testConnection,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Impossibile salvare la configurazione');
+      }
+
+      updateSettings({
+        googleDriveFolderUrl: driveUrl,
+        salvaAncheInLocale: salvaLocale,
+      });
+
+      if (testConnection) {
+        if (data.testResult?.ok) {
+          setDriveStatus({
+            type: 'success',
+            message: `Connessione riuscita! Cartella trovata: "${data.testResult.folderName}"`,
+          });
+        } else {
+          setDriveStatus({
+            type: 'error',
+            message: data.testResult?.error || 'Errore durante la verifica della cartella.',
+          });
+        }
+      } else {
+        setDriveStatus({
+          type: 'success',
+          message: 'Configurazione Google Drive salvata con successo.',
+        });
+      }
+    } catch (err: any) {
+      setDriveStatus({
+        type: 'error',
+        message: err.message || 'Errore di comunicazione con il server.',
+      });
+    } finally {
+      setIsTestingDrive(false);
+    }
+  };
 
   if (!isLoaded) {
     return <div>Caricamento impostazioni...</div>;
@@ -205,14 +281,94 @@ export default function ImpostazioniTab() {
             <CardTitle>Autenticazione Service Account</CardTitle>
             <CardDescription>
                 L'esportazione degli eventi avviene tramite un service account. Assicurati che l'indirizzo email del service account
-                (<code className="bg-muted px-1 py-0.5 rounded-sm text-sm">calendar-scheduler@sturdy-yen-458414-h7.iam.gserviceaccount.com</code>)
-                sia stato aggiunto con i permessi di scrittura ("Effettuare modifiche agli eventi") ai calendari di destinazione nelle impostazioni di Google Calendar.
+                (<code className="bg-muted px-1 py-0.5 rounded-sm text-sm select-all">calendar-scheduler@sturdy-yen-458414-h7.iam.gserviceaccount.com</code>)
+                sia stato aggiunto con i permessi di scrittura ai calendari di Google Calendar e come <strong>Editor</strong> alla cartella di Google Drive per gli screenshot.
             </CardDescription>
         </CardHeader>
       </Card>
 
       <CalendarSettingsSection title="Calendari per Importa Calendario" tipo="importaCalendario" />
       <CalendarSettingsSection title="Calendari per ODG" tipo="odg" />
+
+      {/* Sezione Configurazione Google Drive & Screenshot (Area Amministratore) */}
+      <Card className="border-amber-500/30 bg-amber-500/5 dark:bg-amber-950/10">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <span>Salvataggio Screenshot su Google Drive</span>
+            </CardTitle>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+              Area Amministratore
+            </span>
+          </div>
+          <CardDescription>
+            Configura la cartella Google Drive in cui archiviare automaticamente gli screenshot degli ordini del giorno e scegli se mantenere una copia locale.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="googleDriveFolderUrl" className="flex flex-col gap-1">
+              <span className="font-medium">Link o ID Cartella Google Drive</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                Incolla il link completo (es. <code>https://drive.google.com/drive/folders/...</code>) oppure l'ID della cartella.
+              </span>
+            </Label>
+            <Input
+              id="googleDriveFolderUrl"
+              placeholder="https://drive.google.com/drive/folders/1abc123xyz..."
+              value={driveUrl}
+              onChange={(e) => setDriveUrl(e.target.value)}
+              className="font-mono text-sm bg-background"
+            />
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border p-4 bg-background">
+            <Label htmlFor="salvaAncheInLocale" className="flex flex-col gap-1 cursor-pointer">
+              <span className="font-medium">Salva anche in locale</span>
+              <span className="text-sm font-normal text-muted-foreground">
+                {salvaLocale
+                  ? 'Attivo: gli screenshot verranno salvati sia nella cartella locale che caricati su Google Drive.'
+                  : 'Disattivato: gli screenshot verranno salvati esclusivamente su Google Drive, risparmiando spazio locale.'}
+              </span>
+            </Label>
+            <Switch
+              id="salvaAncheInLocale"
+              checked={salvaLocale}
+              onCheckedChange={(checked) => setSalvaLocale(checked)}
+              aria-label="Salva anche in locale gli screenshot"
+            />
+          </div>
+
+          {driveStatus.message && (
+            <div
+              className={`p-3 rounded-md text-sm border ${
+                driveStatus.type === 'success'
+                  ? 'bg-green-500/10 text-green-700 dark:text-green-300 border-green-500/30'
+                  : 'bg-destructive/10 text-destructive border-destructive/30'
+              }`}
+            >
+              {driveStatus.message}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <Button
+              onClick={() => handleSaveDriveSettings(false)}
+              disabled={isTestingDrive}
+              variant="default"
+            >
+              Salva Configurazione Drive
+            </Button>
+            <Button
+              onClick={() => handleSaveDriveSettings(true)}
+              disabled={isTestingDrive || !driveUrl.trim()}
+              variant="outline"
+            >
+              {isTestingDrive ? 'Verifica in corso...' : 'Verifica Connessione Cartella'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -259,3 +415,4 @@ export default function ImpostazioniTab() {
     </div>
   );
 }
+

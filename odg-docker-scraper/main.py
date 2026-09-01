@@ -96,24 +96,63 @@ def fetch_html(url: str) -> str:
             time.sleep(2 * (i+1))
     raise RuntimeError(f"Impossibile scaricare {url}")
 
+def clean_footnote(fn: str) -> str:
+    s = re.sub(r"^(?:Note|Nota)\s*:\s*", "", fn, flags=re.IGNORECASE).strip()
+    s = re.sub(r"^\*+\s*", "", s).strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
 def table_rows_from_html(html: str):
     soup = BeautifulSoup(html, "lxml")
     rows = []
+    footnotes = []
+
     for tr in soup.find_all("tr"):
         cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th","td"])]
         cells = [c for c in cells if c]
-        if cells:
-            rows.append(cells)
+        if not cells:
+            continue
+
+        row_text = " ".join(cells).strip()
+        # Riconosce righe di Note / Footnote
+        if re.match(r"^(?:Note|Nota)\b", row_text, re.IGNORECASE) or (len(cells) == 1 and row_text.startswith("*")):
+            note_content = re.sub(r"^(?:Note|Nota)\s*:\s*", "", row_text, flags=re.IGNORECASE).strip()
+            if note_content and note_content not in footnotes:
+                footnotes.append(note_content)
+            continue
+
+        rows.append(cells)
+
+    full_text = soup.get_text("\n", strip=True)
+
+    # Cerca note anche nel testo completo (es. div/p/span fuori dalla tabella)
+    for line in full_text.split("\n"):
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+        m_note = re.match(r"^(?:Note|Nota)\s*:\s*(.+)$", line_clean, re.IGNORECASE)
+        if m_note:
+            note_content = m_note.group(1).strip()
+            if note_content and note_content not in footnotes:
+                footnotes.append(note_content)
+        elif line_clean.startswith("*") and len(line_clean) > 3:
+            # Righe che iniziano con * e non sono celle della tabella
+            if not any(line_clean == c for r in rows for c in r):
+                if line_clean not in footnotes:
+                    footnotes.append(line_clean)
+
     if not rows:
-        text = soup.get_text("\n", strip=True)
-        candidates = [ln for ln in text.split("\n") if TIME_RE.search(ln)]
+        candidates = [ln for ln in full_text.split("\n") if TIME_RE.search(ln)]
         for ln in candidates:
+            if re.match(r"^(?:Note|Nota)\b", ln, re.IGNORECASE):
+                continue
             parts = [p.strip() for p in re.split(r"\s*\|\s*", ln) if p.strip()]
             if len(parts) >= 3:
                 if len(parts) == 3:
                     parts.append("")
                 rows.append(parts[:4])
-    return rows, soup.get_text(" ", strip=True)
+
+    return rows, soup.get_text(" ", strip=True), footnotes
 
 def classify_place(raw_place: str):
     lp = raw_place.lower()
@@ -142,12 +181,31 @@ def parse_time_range(raw: str):
         return {"raw": start, "start": start, "end": None, "tz": TZ.key}
     return {"raw": raw.strip(), "start": None, "end": None, "tz": TZ.key}
 
-def row_to_struct(row_cells):
+def row_to_struct(row_cells, footnotes=None):
     cells = list(row_cells) + [""]*4
     recipient = cells[0].strip()
     place_raw = cells[1].strip()
     time_raw = cells[2].strip()
     desc_raw = cells[3].strip()
+
+    # Se la riga contiene un asterisco '*' e ci sono note a piè di pagina,
+    # appende l'informazione della nota in coda alla descrizione
+    if "*" in desc_raw or "*" in place_raw or "*" in recipient:
+        if footnotes:
+            cleaned_notes = []
+            desc_lower = desc_raw.lower()
+            for fn in footnotes:
+                clean_fn = clean_footnote(fn)
+                if clean_fn and clean_fn.lower() not in desc_lower:
+                    cleaned_notes.append(clean_fn)
+
+            if cleaned_notes:
+                notes_text = " - ".join(cleaned_notes)
+                if desc_raw.endswith("-"):
+                    desc_raw = f"{desc_raw} {notes_text}"
+                else:
+                    desc_raw = f"{desc_raw} - {notes_text}"
+                desc_raw = re.sub(r"\s+", " ", desc_raw).strip()
 
     flags = []
     if "*" in desc_raw:
@@ -186,7 +244,7 @@ def row_to_struct(row_cells):
 
 def extract_page(url: str):
     html = fetch_html(url)
-    rows_raw, full_text = table_rows_from_html(html)
+    rows_raw, full_text, footnotes = table_rows_from_html(html)
     date_info = parse_date_header(full_text)
     last_upd = parse_last_update(full_text)
 
@@ -195,7 +253,7 @@ def extract_page(url: str):
         joined = " | ".join(rc)
         if not TIME_RE.search(joined):
             continue
-        structured_rows.append(row_to_struct(rc))
+        structured_rows.append(row_to_struct(rc, footnotes=footnotes))
 
     table_obj = {
         "columns": [

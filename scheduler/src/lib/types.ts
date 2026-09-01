@@ -31,4 +31,8 @@ export interface AppSettings {
   timezone: 'Europe/Rome';
   consentiDateFuoriMese: boolean;
   exportMode: 'oauth' | 'serviceAccount';
+  // Configurazione Google Drive Screenshot (Amministratore)
+  googleDriveFolderUrl?: string; // Link o ID cartella Google Drive
+  salvaAncheInLocale?: boolean;  // Se true salva anche in locale, altrimenti solo su Drive
 }
+

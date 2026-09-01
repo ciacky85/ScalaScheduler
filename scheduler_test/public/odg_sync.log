@@ -1,7 +1,0 @@
-# Log di sincronizzazione automatica Ordine del Giorno
-# Ogni riga contiene timestamp, azione e dettagli.
-2025-11-11T08:51:28.712Z - [SYNC START] Calendar ID: 42f8d099295f7ee280c91dbeb90b0c7fa7ed172927e1c68b2a75724e6290335b@group.calendar.google.com, Dry Run: false
-2025-11-11T08:51:29.703Z - [SYNC END] Summary: Scanned=6, Inserted=0, Updated=0, Unchanged=5, Deleted=0, Skipped=1
-2025-11-11T08:56:37.903Z - [SYNC START] Calendar ID: 42f8d099295f7ee280c91dbeb90b0c7fa7ed172927e1c68b2a75724e6290335b@group.calendar.google.com, Dry Run: false
-2025-11-11T08:56:38.873Z -   - [INSERT] odg|2025-11-12|20:00|22:30||20:00|COSÌ FAN TUTTE 3 (Date: 2025-11-12): New event.
-2025-11-11T08:56:39.730Z - [SYNC END] Summary: Scanned=6, Inserted=1, Updated=0, Unchanged=5, Deleted=0, Skipped=0

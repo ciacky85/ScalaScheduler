@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # ============================================================
+  # 1. SCALA SCHEDULER (Next.js WebApp + API + Cron Runner)
+  # ============================================================
+  scala-scheduler:
+    build:
+      context: ./scheduler
+      dockerfile: Dockerfile
+    image: ciacky85/scala-scheduler:latest
+    container_name: ScalaScheduler
+    restart: unless-stopped
+    ports:
+      - "3010:3000"
+    environment:
+      - TZ=Europe/Rome
+      - NODE_ENV=production
+    volumes:
+      # Configurazioni WebApp (calendari, drive_config, service-account-key)
+      - /srv/docker_conf/configs/ScalaScheduler/config:/app/config
+      - /srv/docker_conf/configs/ScalaScheduler/config:/app/src/app/config
+      # Volume dati condiviso con lo scraper (odg_structured.json, config.json, screenshot)
+      - /srv/docker_conf/configs/ScalaScheduler/odg-scraper/config:/app/public
+    depends_on:
+      - odg-scraper
+
+  # ============================================================
+  # 2. ODG SCRAPER (Scraping periodico ERP Teatro alla Scala)
+  # ============================================================
+  odg-scraper:
+    build:
+      context: ./odg-docker-scraper
+      dockerfile: Dockerfile
+    image: ciacky85/odg-scraper:latest
+    container_name: odg-scraper
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Rome
+    volumes:
+      # Volume dati: legge config.json e scrive odg_structured.json
+      - /srv/docker_conf/configs/ScalaScheduler/odg-scraper/config:/data

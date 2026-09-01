@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ImpostazioniTab from '@/app/components/impostazioni-tab';
 import ImportaCalendarioTab from '@/app/components/importa-calendario-tab';
-import OdgTab from './components/odg-tab';
-import { CalendarDays } from 'lucide-react';
+import OdgTab from '@/app/components/odg-tab';
+import ScraperManagerTab from '@/app/components/scraper-manager-tab';
+import { CalendarDays, Bot } from 'lucide-react';
 import type { RigaCalendario } from '@/lib/types';
 
 export default function Home() {
@@ -25,10 +26,14 @@ export default function Home() {
       </header>
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
         <Tabs defaultValue="import" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-1">
             <TabsTrigger value="import" aria-label="Importa Calendario">Importa Calendario</TabsTrigger>
             <TabsTrigger value="odg" aria-label="Ordine del Giorno">ODG</TabsTrigger>
             <TabsTrigger value="settings" aria-label="Impostazioni">Impostazioni</TabsTrigger>
+            <TabsTrigger value="scraper" aria-label="ODG Scraper Manager" className="flex items-center gap-1.5">
+              <Bot className="h-3.5 w-3.5 text-amber-500" />
+              <span>Scraper (Admin)</span>
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="import">
             <ImportaCalendarioTab
@@ -44,8 +49,12 @@ export default function Home() {
           <TabsContent value="settings">
             <ImpostazioniTab />
           </TabsContent>
+          <TabsContent value="scraper">
+            <ScraperManagerTab />
+          </TabsContent>
         </Tabs>
       </main>
     </div>
   );
 }
+

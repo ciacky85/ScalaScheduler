@@ -10,6 +10,8 @@ const defaultSettings: Omit<AppSettings, 'calendari'> = {
   timezone: 'Europe/Rome',
   consentiDateFuoriMese: true,
   exportMode: 'serviceAccount',
+  googleDriveFolderUrl: '',
+  salvaAncheInLocale: true,
 };
 
 // Carica solo le impostazioni che non sono i calendari
