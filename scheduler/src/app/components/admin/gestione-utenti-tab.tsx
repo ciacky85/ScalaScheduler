@@ -201,7 +201,7 @@ export default function GestioneUtentiTab() {
               <div>
                 <CardTitle>Gestione Account Utenti</CardTitle>
                 <CardDescription>
-                  Approva le registrazioni, gestisci i ruoli e abilita l'accesso per i coristi.
+                  Approva le registrazioni, gestisci i ruoli e abilita l'accesso per gli artisti del Coro.
                 </CardDescription>
               </div>
             </div>
@@ -325,7 +325,7 @@ export default function GestioneUtentiTab() {
                     <TableCell className="text-xs text-muted-foreground">{u.email || '-'}</TableCell>
                     <TableCell>
                       <Badge variant={u.role === 'admin' ? 'default' : 'secondary'} className="text-xs">
-                        {u.role === 'admin' ? 'Amministratore' : 'Corista'}
+                        {u.role === 'admin' ? 'Amministratore' : 'Artista del Coro'}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -435,7 +435,7 @@ export default function GestioneUtentiTab() {
                   value={editRole}
                   onChange={(e) => setEditRole(e.target.value as UserRole)}
                 >
-                  <option value="user">Corista (Standard)</option>
+                  <option value="user">Artista del Coro (Standard)</option>
                   <option value="admin">Amministratore</option>
                 </select>
               </div>
@@ -508,7 +508,7 @@ export default function GestioneUtentiTab() {
                 value={newRole}
                 onChange={(e) => setNewRole(e.target.value as UserRole)}
               >
-                <option value="user">Corista</option>
+                <option value="user">Artista del Coro</option>
                 <option value="admin">Amministratore</option>
               </select>
             </div>

@@ -105,7 +105,7 @@ export default function LoginDialog({ open, onOpenChange }: LoginDialogProps) {
           </div>
           <DialogTitle className="text-xl">Accesso ScalaScheduler</DialogTitle>
           <DialogDescription>
-            Accedi con il tuo account o registrati come nuovo corista per sincronizzare i tuoi calendari.
+            Accedi con il tuo account o registrati come nuovo artista del Coro per sincronizzare i tuoi calendari.
           </DialogDescription>
         </DialogHeader>
 

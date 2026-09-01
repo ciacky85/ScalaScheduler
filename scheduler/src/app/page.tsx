@@ -328,7 +328,7 @@ export default function Home() {
             )}
             <span className="font-medium max-w-[120px] sm:max-w-[180px] truncate">{user.nome}</span>
             <Badge variant={user.role === 'admin' ? 'default' : 'secondary'} className="text-[10px] py-0 px-1.5 h-4">
-              {user.role === 'admin' ? 'Admin' : 'Corista'}
+              {user.role === 'admin' ? 'Admin' : 'Artista del Coro'}
             </Badge>
           </div>
 

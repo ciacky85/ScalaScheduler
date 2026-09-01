@@ -260,7 +260,7 @@ L'applicazione implementa un **Access Gate obbligatorio**: se l'utente non è au
 ### 3.4 L'Interfaccia Web — 5 Tab con RBAC
 
 > **Visibilità Tab per Ruolo:**
-> | Tab | Admin | Corista |
+> | Tab | Admin | Artista del Coro |
 > |-----|:-----:|:-------:|
 > | Importa Calendario | ✅ | ✅ (solo proprio calendario) |
 > | ODG | ✅ | ✅ |
@@ -286,7 +286,7 @@ L'applicazione implementa un **Access Gate obbligatorio**: se l'utente non è au
    - Campi editabili: descrizione, luogo, fasce orarie (1 e 2), data (con date picker)
    - Filtro testuale, ordinamento, selezione multipla
    - Badge "Da Revisionare" per righe problematiche
-5. **Filtraggio per proprietario**: un utente Corista vede nel dropdown solo i calendari di cui è proprietario (`ownerUserId === user.id`). Gli admin vedono tutti.
+5. **Filtraggio per proprietario**: un utente Artista del Coro vede nel dropdown solo i calendari di cui è proprietario (`ownerUserId === user.id`). Gli admin vedono tutti.
 6. Pulsante "Esporta su Google Calendar" → [`export-events.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/lib/calendar/export-events.ts) (Server Action)
 
 #### Tab 2: "ODG" (Ordine del Giorno da Web) — Visibile a tutti
@@ -302,7 +302,7 @@ L'applicazione implementa un **Access Gate obbligatorio**: se l'utente non è au
 - **Hub Unico Gestione Calendari**: tabella centralizzata per TUTTI i calendari con:
   - CRUD completo (aggiunta, modifica, eliminazione)
   - Campi: etichetta, calendarId, tipo (importaCalendario/odg), predefinito
-  - **Assegnazione Proprietario (`ownerUserId`)**: menu a tendina con tutti gli utenti registrati per associare ogni calendario al suo corista proprietario
+  - **Assegnazione Proprietario (`ownerUserId`)**: menu a tendina con tutti gli utenti registrati per associare ogni calendario al suo artista del Coro proprietario
   - Badge con nome proprietario nella colonna dedicata
 - **Salvataggio Screenshot su Google Drive**:
   - Input link/ID cartella Google Drive per gli screenshot
@@ -320,7 +320,7 @@ L'applicazione implementa un **Access Gate obbligatorio**: se l'utente non è au
 
 #### Tab 5: "Utenti" (Solo Admin)
 - **Richieste in attesa**: sezione dedicata con pulsanti Approva/Rifiuta per le registrazioni pendenti.
-- **Elenco utenti**: tabella con nome, username, email, ruolo (Admin/Corista), stato account.
+- **Elenco utenti**: tabella con nome, username, email, ruolo (Admin/Artista del Coro), stato account.
 - **Modifica utente**: popup con form pulito per aggiornare Nome, Username, Email, Password, Ruolo e Stato. **Nessuna gestione calendari** in questa scheda (centralizzata in Impostazioni).
 - **Creazione manuale**: pulsante per creare un account direttamente con status "approvato".
 - **Eliminazione**: pulsante per rimuovere un account.
@@ -758,7 +758,7 @@ curl -sS -X POST -H "Content-Type: application/json" "$API_ENDPOINT" --fail
 ### 6.7 ~~Nessuna Autenticazione Web~~ ✅ RISOLTO
 - ~~L'interfaccia web è accessibile senza login~~
 - ~~Chiunque acceda alla porta 3000 può modificare calendari e pushare eventi~~
-- **Implementato** Login Gate obbligatorio, gestione utenti con approvazione, RBAC (Admin/Corista) e associazione utente-calendario.
+- **Implementato** Login Gate obbligatorio, gestione utenti con approvazione, RBAC (Admin/Artista del Coro) e associazione utente-calendario.
 
 ---
 
@@ -883,7 +883,7 @@ docker-compose up --build
 ### `scheduler/` — Sorgenti Principali
 | File | Funzione |
 |------|----------|
-| `src/app/page.tsx` | Home page: Login Gate + 5 tab con RBAC (Admin/Corista) |
+| `src/app/page.tsx` | Home page: Login Gate + 5 tab con RBAC (Admin/Artista del Coro) |
 | `src/app/layout.tsx` | Layout: fonts (Inter, Space Grotesk, Source Code Pro), AuthProvider, SettingsProvider |
 | `src/lib/types.ts` | Tipi condivisi: `RigaCalendario`, `AppSettings`, `ImpostazioniCalendario` (+ownerUserId), `UserProfile`, `UserRole`, `UserStatus`, `DriveConfig` |
 | `src/lib/auth/users-store.ts` | **[NUOVO]** Lettura/scrittura user.json, password in chiaro |
@@ -1054,7 +1054,7 @@ NAS / Server Locale
 
 | File | Modifica |
 |------|----------|
-| `src/app/page.tsx` | Login Gate obbligatorio: se non autenticato mostra solo form Login/Registrazione. Dopo login: 5 tab con visibilità condizionata al ruolo (Admin = 5 tab, Corista = solo Importa Calendario + ODG) |
+| `src/app/page.tsx` | Login Gate obbligatorio: se non autenticato mostra solo form Login/Registrazione. Dopo login: 5 tab con visibilità condizionata al ruolo (Admin = 5 tab, Artista del Coro = solo Importa Calendario + ODG) |
 | `src/lib/types.ts` | Aggiunti `ownerUserId?` a `ImpostazioniCalendario`, nuovi tipi `UserProfile`, `UserRole`, `UserStatus` |
 | `src/app/api/calendars/route.ts` | Mappatura `ownerUserId` → `ownerName` in lettura, persistenza `ownerUserId` in scrittura |
 

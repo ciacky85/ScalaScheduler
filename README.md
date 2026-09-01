@@ -1,6 +1,6 @@
 # ScalaScheduler — Chorus Calendar Sync & ODG Scraper
 
-Applicazione integrata per l'estrazione automatica dei programmi di lavoro e degli Ordini del Giorno (ODG) del **Coro del Teatro alla Scala**, sincronizzazione su **Google Calendar** tramite Service Account e archiviazione degli screenshot su **Google Drive**. Include sistema di **autenticazione multi-utente** con approvazione registrazioni, **RBAC** (Admin / Corista) e associazione granulare utente-calendario.
+Applicazione integrata per l'estrazione automatica dei programmi di lavoro e degli Ordini del Giorno (ODG) del **Coro del Teatro alla Scala**, sincronizzazione su **Google Calendar** tramite Service Account e archiviazione degli screenshot su **Google Drive**. Include sistema di **autenticazione multi-utente** con approvazione registrazioni, **RBAC** (Admin / Artista del Coro) e associazione granulare utente-calendario.
 
 ---
 
@@ -21,7 +21,7 @@ Applicazione integrata per l'estrazione automatica dei programmi di lavoro e deg
 3. **Autenticazione & Gestione Utenti**:
    - **Login obbligatorio** (Access Gate): nessuna funzionalità è accessibile senza autenticazione.
    - **Registrazione utenti** con workflow di approvazione da parte dell'admin.
-   - **Ruoli RBAC**: `admin` (accesso completo a tutte le 5 schede) e `user/corista` (accesso limitato a "Importa Calendario" e "ODG").
+   - **Ruoli RBAC**: `admin` (accesso completo a tutte le 5 schede) e `user/artista del Coro` (accesso limitato a "Importa Calendario" e "ODG").
    - **Password in chiaro** nel file `user.json` (requisito del progetto).
    - **Associazione utente-calendario**: ogni calendario ha un `ownerUserId` che determina la visibilità per-utente.
 
@@ -43,7 +43,7 @@ Applicazione integrata per l'estrazione automatica dei programmi di lavoro e deg
 
 ## 🛡️ Visibilità Schede per Ruolo
 
-| Scheda | Admin | Corista |
+| Scheda | Admin | Artista del Coro |
 |--------|:-----:|:-------:|
 | **Importa Calendario** | ✅ | ✅ (solo il proprio calendario) |
 | **ODG** | ✅ | ✅ |
