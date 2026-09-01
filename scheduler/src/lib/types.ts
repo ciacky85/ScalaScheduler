@@ -23,6 +23,8 @@ export interface ImpostazioniCalendario {
   calendarId: string; // id effettivo Google Calendar
   tipo: 'importaCalendario' | 'odg';
   predefinito?: boolean;
+  ownerId?: string;   // ID o Username dell'utente proprietario (dal file calendars.json)
+  ownerName?: string; // Nome visualizzato del proprietario
 }
 
 export interface AppSettings {
@@ -64,16 +66,17 @@ export type UserRole = 'admin' | 'user';
 export type UserStatus = 'pending' | 'approved' | 'rejected' | 'disabled';
 
 export interface User {
-  id: string;                    // UUID
+  id: string;                    // UUID o ID utente
   username: string;              // Username univoco
   nome: string;                  // Nome e Cognome
   email?: string;
-  passwordHash: string;          // Password cifrata
-  salt: string;
+  password?: string;             // Password in chiaro (come da configurazione utente)
+  passwordHash?: string;         // Eventuale hash
+  salt?: string;
   role: UserRole;                // 'admin' | 'user'
   status: UserStatus;            // 'pending' | 'approved' | 'rejected' | 'disabled'
   assignedCalendarIds: string[]; // ID Google Calendar assegnati
-  createdAt: string;             // ISO Date
+  createdAt?: string;            // ISO Date
   approvedAt?: string;
   approvedBy?: string;
   lastLoginAt?: string;

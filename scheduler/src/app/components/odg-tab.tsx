@@ -75,7 +75,7 @@ export default function OdgTab() {
 
   const availableCalendars = (calendars || [])
     .filter(c => c && c.tipo === 'odg')
-    .filter(c => !user || isAdmin || isCalendarAllowed(c.calendarId));
+    .filter(c => !user || isAdmin || isCalendarAllowed(c));
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);

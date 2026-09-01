@@ -29,6 +29,9 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 
 
+import { useAuth } from '@/contexts/auth-context';
+import { Badge } from '@/components/ui/badge';
+
 const CalendarSettingsSection = ({
   title,
   tipo,
@@ -37,10 +40,13 @@ const CalendarSettingsSection = ({
   tipo: 'importaCalendario' | 'odg';
 }) => {
   const { calendars, addCalendar, updateCalendar, removeCalendar, setAsDefault } = useCalendars();
+  const { user, isAdmin, isCalendarAllowed } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCalendar, setEditingCalendar] = useState<ImpostazioniCalendario | null>(null);
 
-  const calendarsForType = calendars.filter(c => c.tipo === tipo);
+  const calendarsForType = calendars
+    .filter(c => c.tipo === tipo)
+    .filter(c => !user || isAdmin || isCalendarAllowed(c));
 
   const handleOpenModal = (cal: ImpostazioniCalendario | null) => {
     setEditingCalendar(cal);
@@ -64,7 +70,16 @@ const CalendarSettingsSection = ({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>{title}</CardTitle>
+            <CardDescription>
+              {isAdmin
+                ? 'Gestisci i calendari Google e assegna il proprietario (Owner).'
+                : 'I tuoi calendari Google abilitati per la sincronizzazione.'}
+            </CardDescription>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="border rounded-md">
@@ -73,15 +88,25 @@ const CalendarSettingsSection = ({
               <TableRow>
                 <TableHead>Etichetta</TableHead>
                 <TableHead>ID Calendario</TableHead>
+                <TableHead>Proprietario (Owner)</TableHead>
                 <TableHead>Predefinito</TableHead>
-                <TableHead className="text-right w-[140px]">Azioni</TableHead>
+                {isAdmin && <TableHead className="text-right w-[140px]">Azioni</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {calendarsForType.length > 0 ? calendarsForType.map(cal => (
                 <TableRow key={cal.id}>
-                  <TableCell>{cal.label}</TableCell>
+                  <TableCell className="font-medium">{cal.label}</TableCell>
                   <TableCell className="font-code text-xs truncate max-w-xs">{cal.calendarId}</TableCell>
+                  <TableCell>
+                    {cal.ownerId ? (
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {cal.ownerName ? `${cal.ownerName} (${cal.ownerId})` : cal.ownerId}
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic">Tutti (Globale)</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                      <Switch
                         checked={cal.predefinito}
@@ -89,26 +114,33 @@ const CalendarSettingsSection = ({
                         aria-label={`Imposta ${cal.label} come predefinito`}
                       />
                   </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" onClick={() => handleOpenModal(cal)} aria-label={`Modifica ${cal.label}`}>
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => removeCalendar(cal.id)} aria-label={`Rimuovi ${cal.label}`}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
+                  {isAdmin && (
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="icon" onClick={() => handleOpenModal(cal)} aria-label={`Modifica ${cal.label}`}>
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => removeCalendar(cal.id)} aria-label={`Rimuovi ${cal.label}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               )) : (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground">Nessun calendario configurato.</TableCell>
+                  <TableCell colSpan={isAdmin ? 5 : 4} className="text-center text-muted-foreground">
+                    Nessun calendario configurato.
+                  </TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
         </div>
-        <Button className="mt-4" onClick={() => handleOpenModal(null)}>
-          <PlusCircle className="mr-2 h-4 w-4" /> Aggiungi Calendario
-        </Button>
+        
+        {isAdmin && (
+          <Button className="mt-4" onClick={() => handleOpenModal(null)}>
+            <PlusCircle className="mr-2 h-4 w-4" /> Aggiungi Calendario
+          </Button>
+        )}
 
         {isModalOpen && (
             <CalendarEditModal
@@ -137,15 +169,17 @@ function CalendarEditModal({ isOpen, onClose, onSave, calendar, defaultTipo }: C
     const [label, setLabel] = useState(calendar?.label || '');
     const [calendarId, setCalendarId] = useState(calendar?.calendarId || '');
     const [tipo, setTipo] = useState(calendar?.tipo || defaultTipo);
+    const [ownerId, setOwnerId] = useState(calendar?.ownerId || '');
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         onSave({
-            id: calendar?.id || '', // L'ID verrà generato se è un nuovo calendario
+            id: calendar?.id || '',
             label,
             calendarId,
             tipo,
             predefinito: calendar?.predefinito || false,
+            ownerId: ownerId.trim() || undefined,
         });
     };
 
@@ -155,7 +189,7 @@ function CalendarEditModal({ isOpen, onClose, onSave, calendar, defaultTipo }: C
                 <DialogHeader>
                     <DialogTitle>{calendar ? 'Modifica Calendario' : 'Aggiungi Calendario'}</DialogTitle>
                     <DialogDescription>
-                        Inserisci i dettagli per il calendario Google.
+                        Inserisci i dettagli per il calendario Google e associa il proprietario.
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -166,6 +200,15 @@ function CalendarEditModal({ isOpen, onClose, onSave, calendar, defaultTipo }: C
                     <div className="space-y-2">
                         <Label htmlFor="calendarId">ID Calendario Google</Label>
                         <Input id="calendarId" value={calendarId} onChange={(e) => setCalendarId(e.target.value)} required />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="ownerId">Proprietario (Owner ID / Username)</Label>
+                        <Input
+                          id="ownerId"
+                          placeholder="es. admin, mario.rossi (lascia vuoto per tutti)"
+                          value={ownerId}
+                          onChange={(e) => setOwnerId(e.target.value)}
+                        />
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="tipo">Tipo</Label>

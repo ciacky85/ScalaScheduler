@@ -35,7 +35,7 @@ export default function ExportControls({ selectedRows, tipo }: ExportControlsPro
 
   const availableCalendars = (calendars || [])
     .filter(c => c && c.tipo === tipo)
-    .filter(c => !user || isAdmin || isCalendarAllowed(c.calendarId));
+    .filter(c => !user || isAdmin || isCalendarAllowed(c));
 
   const countEvents = () => {
     return selectedRows.reduce((acc, row) => {

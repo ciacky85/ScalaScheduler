@@ -1,13 +1,13 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import type { UserProfile } from '@/lib/types';
+import type { UserProfile, ImpostazioniCalendario } from '@/lib/types';
 
 interface AuthContextType {
   user: UserProfile | null;
   isLoading: boolean;
   isAdmin: boolean;
-  isCalendarAllowed: (calendarId: string) => boolean;
+  isCalendarAllowed: (cal: string | ImpostazioniCalendario) => boolean;
   login: (username: string, password: string) => Promise<{ ok: boolean; error?: string; status?: string }>;
   register: (data: { username: string; nome: string; email?: string; password: string }) => Promise<{ ok: boolean; error?: string; message?: string }>;
   logout: () => Promise<void>;
@@ -88,12 +88,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAdmin = user?.role === 'admin';
 
-  const isCalendarAllowed = useCallback((calendarId: string): boolean => {
+  const isCalendarAllowed = useCallback((cal: string | ImpostazioniCalendario): boolean => {
     if (!user) return false;
     if (user.role === 'admin') return true;
+
     const assigned = Array.isArray(user.assignedCalendarIds) ? user.assignedCalendarIds : [];
-    // Se non ha calendari specifici assegnati, può vedere se abilitato o se corrisponde
-    return assigned.includes(calendarId);
+
+    if (typeof cal === 'string') {
+      return assigned.includes(cal);
+    }
+
+    if (cal && typeof cal === 'object') {
+      const owner = String(cal.ownerId || '').trim().toLowerCase();
+      const uId = String(user.id || '').trim().toLowerCase();
+      const uName = String(user.username || '').trim().toLowerCase();
+
+      // Se l'utente è il proprietario del calendario (ownerId)
+      if (owner && (owner === uId || owner === uName)) {
+        return true;
+      }
+
+      // Se è presente nei calendari assegnati all'utente
+      if (assigned.includes(cal.calendarId) || assigned.includes(cal.id)) {
+        return true;
+      }
+    }
+
+    return false;
   }, [user]);
 
   return (

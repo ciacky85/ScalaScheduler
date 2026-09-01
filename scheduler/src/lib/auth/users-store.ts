@@ -1,20 +1,20 @@
 import fs from 'fs/promises';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import type { User, UserProfile, UserRole, UserStatus } from '@/lib/types';
 
 function getCandidateUsersPaths(): string[] {
   return [
-    '/app/config/users.json',
     '/app/config/user.json',
+    '/app/config/users.json',
     '/app/config/utenti.json',
-    '/app/src/app/config/users.json',
     '/app/src/app/config/user.json',
-    path.join(process.cwd(), 'src', 'app', 'config', 'users.json'),
+    '/app/src/app/config/users.json',
     path.join(process.cwd(), 'src', 'app', 'config', 'user.json'),
-    path.join(process.cwd(), 'config', 'users.json'),
+    path.join(process.cwd(), 'src', 'app', 'config', 'users.json'),
     path.join(process.cwd(), 'config', 'user.json'),
+    path.join(process.cwd(), 'config', 'users.json'),
   ];
 }
 
@@ -22,20 +22,11 @@ export function getResolvedUsersPath(): string {
   for (const p of getCandidateUsersPaths()) {
     if (existsSync(p)) return p;
   }
-  return path.join(process.cwd(), 'src', 'app', 'config', 'users.json');
+  return path.join(process.cwd(), 'src', 'app', 'config', 'user.json');
 }
 
 /**
- * Genera hash crittografico PBKDF2 (SHA-512) nativo Node.js.
- */
-export function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
-  const actualSalt = salt || crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, actualSalt, 10000, 64, 'sha512').toString('hex');
-  return { hash, salt: actualSalt };
-}
-
-/**
- * Normalizza qualsiasi record utente (proveniente da vecchi file user.json, users.json, o formati personalizzati).
+ * Normalizza qualsiasi record utente memorizzato con password in chiaro.
  */
 export function normalizeUserRecord(raw: any, index: number = 0): User {
   if (!raw || typeof raw !== 'object') {
@@ -46,6 +37,9 @@ export function normalizeUserRecord(raw: any, index: number = 0): User {
   const username = String(rawUsername).trim();
   const nome = String(raw.nome || raw.name || raw.displayName || raw.fullName || username).trim();
   const email = raw.email ? String(raw.email).trim() : undefined;
+
+  // Password in chiaro
+  const password = String(raw.password || raw.pwd || raw.pass || raw.passwordHash || 'password').trim();
 
   // Rilevamento Ruolo
   let role: UserRole = 'user';
@@ -82,24 +76,12 @@ export function normalizeUserRecord(raw: any, index: number = 0): User {
       .filter(Boolean);
   }
 
-  // Password & Salt
-  let passwordHash = raw.passwordHash || raw.password_hash || '';
-  let salt = raw.salt || '';
-
-  // Se la password era memorizzata in chiaro nel campo 'password'
-  if (raw.password && !passwordHash) {
-    const hashed = hashPassword(String(raw.password));
-    passwordHash = hashed.hash;
-    salt = hashed.salt;
-  }
-
   return {
-    id: String(raw.id || raw.userId || raw._id || `user-${index}-${crypto.randomUUID().slice(0, 8)}`),
+    id: String(raw.id || raw.userId || raw._id || username),
     username,
     nome,
     email,
-    passwordHash,
-    salt,
+    password,
     role,
     status,
     assignedCalendarIds,
@@ -111,47 +93,34 @@ export function normalizeUserRecord(raw: any, index: number = 0): User {
 }
 
 /**
- * Verifica le credenziali dell'utente supportando PBKDF2, hash SHA256/MD5 o password in chiaro storiche.
+ * Verifica le credenziali confrontando direttamente la password in chiaro.
  */
 export function verifyUserCredentials(inputPassword: string, user: User): boolean {
   if (!inputPassword) return false;
+  const inputTrimmed = String(inputPassword).trim();
+  const userPasswordTrimmed = String(user.password || '').trim();
 
-  // 1. Password standard con PBKDF2 + salt
+  // 1. Confronto diretto in chiaro
+  if (inputTrimmed === userPasswordTrimmed) {
+    return true;
+  }
+
+  // 2. Se l'utente è admin di default
+  if (user.username.toLowerCase() === 'admin' && inputTrimmed === 'admin') {
+    return true;
+  }
+
+  // 3. Controllo hash legacy se presente
   if (user.passwordHash && user.salt) {
     try {
-      const check = crypto.pbkdf2Sync(inputPassword, user.salt, 10000, 64, 'sha512').toString('hex');
+      const check = crypto.pbkdf2Sync(inputTrimmed, user.salt, 10000, 64, 'sha512').toString('hex');
       if (check === user.passwordHash) return true;
     } catch (_) {}
-  }
-
-  // 2. Password in chiaro
-  if (user.passwordHash === inputPassword) {
-    return true;
-  }
-
-  // 3. Hash SHA-256 (64 hex)
-  try {
-    const sha256 = crypto.createHash('sha256').update(inputPassword).digest('hex');
-    if (user.passwordHash.toLowerCase() === sha256.toLowerCase()) return true;
-  } catch (_) {}
-
-  // 4. Hash MD5 (32 hex)
-  try {
-    const md5 = crypto.createHash('md5').update(inputPassword).digest('hex');
-    if (user.passwordHash.toLowerCase() === md5.toLowerCase()) return true;
-  } catch (_) {}
-
-  // 5. Default admin se le credenziali non sono ancora state modificate
-  if (user.username.toLowerCase() === 'admin' && inputPassword === 'admin') {
-    return true;
   }
 
   return false;
 }
 
-/**
- * Trasforma un oggetto User completo in un UserProfile sicuro per il client.
- */
 export function toUserProfile(user: User): UserProfile {
   return {
     id: user.id,
@@ -168,14 +137,12 @@ export function toUserProfile(user: User): UserProfile {
 }
 
 function createDefaultAdmin(): User {
-  const { hash, salt } = hashPassword('admin');
   return {
-    id: 'admin-root-001',
+    id: 'admin',
     username: 'admin',
     nome: 'Amministratore',
     email: 'admin@teatroallascala.org',
-    passwordHash: hash,
-    salt,
+    password: 'admin',
     role: 'admin',
     status: 'approved',
     assignedCalendarIds: [],
@@ -186,7 +153,7 @@ function createDefaultAdmin(): User {
 }
 
 /**
- * Carica e normalizza tutti gli utenti dai file configurati sul disco o volumi Docker.
+ * Carica tutti gli utenti dai file su disco (supporta user.json, users.json, utenti.json).
  */
 export async function getAllUsers(): Promise<User[]> {
   for (const filePath of getCandidateUsersPaths()) {
@@ -206,7 +173,6 @@ export async function getAllUsers(): Promise<User[]> {
 
         if (rawList.length > 0) {
           const normalized = rawList.map((item, idx) => normalizeUserRecord(item, idx));
-          // Assicura che esista almeno un admin
           if (!normalized.some(u => u.role === 'admin')) {
             normalized.unshift(createDefaultAdmin());
           }
@@ -218,28 +184,41 @@ export async function getAllUsers(): Promise<User[]> {
     }
   }
 
-  // Se nessun file trovato, inizializza con admin di default
   const defaultAdmin = createDefaultAdmin();
   await saveAllUsers([defaultAdmin]);
   return [defaultAdmin];
 }
 
 /**
- * Salva l'intera lista utenti su disco in modo atomico e sincronizzato con i volumi Docker.
+ * Salva gli utenti con password in chiaro sia su user.json che su users.json per massima compatibilità.
  */
 export async function saveAllUsers(users: User[]): Promise<void> {
-  const primaryPath = path.join(process.cwd(), 'src', 'app', 'config', 'users.json');
-  const dir = path.dirname(primaryPath);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(primaryPath, JSON.stringify(users, null, 2), 'utf-8');
+  const jsonContent = JSON.stringify(users, null, 2);
 
-  // Copia anche su /app/config/users.json se montato
-  const dockerLocations = ['/app/config/users.json', '/app/src/app/config/users.json'];
+  // Percorsi locali del progetto
+  const localPaths = [
+    path.join(process.cwd(), 'src', 'app', 'config', 'user.json'),
+    path.join(process.cwd(), 'src', 'app', 'config', 'users.json'),
+  ];
+  for (const loc of localPaths) {
+    try {
+      await fs.mkdir(path.dirname(loc), { recursive: true });
+      await fs.writeFile(loc, jsonContent, 'utf-8');
+    } catch (_) {}
+  }
+
+  // Percorsi dei volumi Docker
+  const dockerLocations = [
+    '/app/config/user.json',
+    '/app/config/users.json',
+    '/app/src/app/config/user.json',
+    '/app/src/app/config/users.json',
+  ];
   for (const dockerLoc of dockerLocations) {
     try {
       const d = path.dirname(dockerLoc);
       if (existsSync(d)) {
-        await fs.writeFile(dockerLoc, JSON.stringify(users, null, 2), 'utf-8');
+        await fs.writeFile(dockerLoc, jsonContent, 'utf-8');
       }
     } catch (_) {}
   }
@@ -247,7 +226,7 @@ export async function saveAllUsers(users: User[]): Promise<void> {
 
 export async function getUserById(id: string): Promise<User | null> {
   const users = await getAllUsers();
-  return users.find(u => u.id === id) || null;
+  return users.find(u => u.id === id || u.username === id) || null;
 }
 
 export async function getUserByUsername(username: string | null | undefined): Promise<User | null> {
@@ -260,7 +239,8 @@ export async function getUserByUsername(username: string | null | undefined): Pr
     users.find(u => {
       const uName = String(u.username || '').trim().toLowerCase();
       const uEmail = String(u.email || '').trim().toLowerCase();
-      return uName === normalized || (uEmail && uEmail === normalized);
+      const uId = String(u.id || '').trim().toLowerCase();
+      return uName === normalized || (uEmail && uEmail === normalized) || uId === normalized;
     }) || null
   );
 }
@@ -283,14 +263,12 @@ export async function createUser(data: {
     throw new Error(`Username "${data.username}" già in uso.`);
   }
 
-  const { hash, salt } = hashPassword(data.password);
   const newUser: User = {
-    id: crypto.randomUUID(),
+    id: String(data.username).trim(),
     username: String(data.username).trim(),
     nome: String(data.nome || data.username).trim(),
     email: data.email ? String(data.email).trim() : undefined,
-    passwordHash: hash,
-    salt,
+    password: String(data.password).trim(),
     role: data.role || 'user',
     status: data.status || 'pending',
     assignedCalendarIds: Array.isArray(data.assignedCalendarIds) ? data.assignedCalendarIds : [],
@@ -304,10 +282,10 @@ export async function createUser(data: {
 
 export async function updateUser(
   id: string,
-  updates: Partial<Omit<User, 'id' | 'passwordHash' | 'salt'>> & { password?: string }
+  updates: Partial<Omit<User, 'id'>> & { password?: string }
 ): Promise<UserProfile> {
   const users = await getAllUsers();
-  const index = users.findIndex(u => u.id === id);
+  const index = users.findIndex(u => u.id === id || u.username === id);
   if (index === -1) {
     throw new Error('Utente non trovato.');
   }
@@ -315,9 +293,7 @@ export async function updateUser(
   const current = users[index];
 
   if (updates.password && String(updates.password).trim()) {
-    const { hash, salt } = hashPassword(String(updates.password).trim());
-    current.passwordHash = hash;
-    current.salt = salt;
+    current.password = String(updates.password).trim();
   }
 
   if (updates.username && String(updates.username).trim()) {
@@ -347,13 +323,13 @@ export async function updateUser(
 
 export async function deleteUser(id: string): Promise<boolean> {
   const users = await getAllUsers();
-  const target = users.find(u => u.id === id);
+  const target = users.find(u => u.id === id || u.username === id);
   if (!target) return false;
   if (target.username === 'admin') {
     throw new Error("Impossibile eliminare l'amministratore principale.");
   }
 
-  const filtered = users.filter(u => u.id !== id);
+  const filtered = users.filter(u => u.id !== id && u.username !== id);
   await saveAllUsers(filtered);
   return true;
 }
