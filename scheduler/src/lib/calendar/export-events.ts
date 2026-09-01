@@ -4,7 +4,7 @@ import type { RigaCalendario, AppSettings } from '@/lib/types';
 import { generateExportErrorReport } from '@/ai/flows/generate-export-error-report';
 import { google } from 'googleapis';
 import { JWT } from 'google-auth-library';
-import serviceAccount from '@/app/config/service-account-key.json';
+import { getServiceAccount } from '@/lib/drive/google-drive';
 import { add, format, parse as parseDateFns } from 'date-fns';
 
 interface ExportResult {
@@ -15,9 +15,10 @@ interface ExportResult {
 }
 
 const createAuth = () => {
+  const sa = getServiceAccount();
   return new JWT({
-    email: serviceAccount.client_email,
-    key: serviceAccount.private_key,
+    email: sa.client_email || '',
+    key: sa.private_key || '',
     scopes: ['https://www.googleapis.com/auth/calendar'],
   });
 };

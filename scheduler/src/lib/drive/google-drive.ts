@@ -1,6 +1,5 @@
 import { google } from 'googleapis';
 import { JWT } from 'google-auth-library';
-import serviceAccount from '@/app/config/service-account-key.json';
 import fs from 'fs/promises';
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
@@ -12,6 +11,23 @@ export interface DriveConfig {
 }
 
 const DRIVE_CONFIG_PATH = path.join(process.cwd(), 'src', 'app', 'config', 'drive_config.json');
+
+export function getServiceAccount(): { client_email?: string; private_key?: string } {
+  const candidates = [
+    path.join(process.cwd(), 'src', 'app', 'config', 'service-account-key.json'),
+    path.join(process.cwd(), 'config', 'service-account-key.json'),
+    '/app/config/service-account-key.json',
+    '/app/src/app/config/service-account-key.json',
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) {
+      try {
+        return JSON.parse(readFileSync(p, 'utf-8'));
+      } catch (_) {}
+    }
+  }
+  return {};
+}
 
 /**
  * Estrae l'ID della cartella Google Drive da un link o accetta direttamente l'ID.
@@ -46,9 +62,10 @@ export function extractDriveFolderId(urlOrId: string | null | undefined): string
 }
 
 export function createDriveAuth(): JWT {
+  const sa = getServiceAccount();
   return new JWT({
-    email: serviceAccount.client_email,
-    key: serviceAccount.private_key,
+    email: sa.client_email || '',
+    key: sa.private_key || '',
     scopes: [
       'https://www.googleapis.com/auth/drive',
       'https://www.googleapis.com/auth/drive.file',
