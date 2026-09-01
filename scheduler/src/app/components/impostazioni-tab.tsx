@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSettings } from '@/contexts/settings-context';
 import { useCalendars } from '@/contexts/calendar-context';
 import { Button } from '@/components/ui/button';
