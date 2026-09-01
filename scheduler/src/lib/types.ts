@@ -36,3 +36,27 @@ export interface AppSettings {
   salvaAncheInLocale?: boolean;  // Se true salva anche in locale, altrimenti solo su Drive
 }
 
+export interface ScraperConfig {
+  urls: string[];
+  output_file: string;
+  schedules: string[];
+  run_on_start: boolean;
+}
+
+export interface ScraperStatus {
+  lastGeneratedAt: string | null;
+  pageCount: number;
+  totalRows: number;
+  pages: Array<{
+    url: string;
+    dateLabel: string | null;
+    dateIso: string | null;
+    lastUpdateRaw: string | null;
+    rowCount: number;
+  }>;
+  configFileFound: boolean;
+  configPath: string;
+  dataFileFound: boolean;
+  dataPath: string;
+}
+

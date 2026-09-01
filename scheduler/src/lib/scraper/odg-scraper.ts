@@ -1,30 +1,8 @@
 import fs from 'fs/promises';
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
-
-export interface ScraperConfig {
-  urls: string[];
-  output_file: string;
-  schedules: string[];
-  run_on_start: boolean;
-}
-
-export interface ScraperStatus {
-  lastGeneratedAt: string | null;
-  pageCount: number;
-  totalRows: number;
-  pages: Array<{
-    url: string;
-    dateLabel: string | null;
-    dateIso: string | null;
-    lastUpdateRaw: string | null;
-    rowCount: number;
-  }>;
-  configFileFound: boolean;
-  configPath: string;
-  dataFileFound: boolean;
-  dataPath: string;
-}
+import type { ScraperConfig, ScraperStatus } from '@/lib/types';
+export type { ScraperConfig, ScraperStatus };
 
 const DEFAULT_CONFIG: ScraperConfig = {
   urls: [

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,16 +9,38 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PlusCircle, Trash2, Play, RefreshCw, Save, CheckCircle2, AlertCircle, Clock, Globe, Database, Shield } from 'lucide-react';
-import type { ScraperConfig, ScraperStatus } from '@/lib/scraper/odg-scraper';
+import type { ScraperConfig, ScraperStatus } from '@/lib/types';
+
+const INITIAL_CONFIG: ScraperConfig = {
+  urls: [
+    'https://erp.teatroallascala.org/pianificazione11/faces/DSSC/pxf_dspagine_coro.xhtml?pps=0',
+    'https://erp.teatroallascala.org/pianificazione11/faces/DSSC/pxf_dspagine_coro.xhtml?pps=1',
+  ],
+  output_file: '/data/odg_structured.json',
+  schedules: ['07:00', '21:00'],
+  run_on_start: true,
+};
+
+function formatDateSafe(dateStr: string | null | undefined): string {
+  if (!dateStr) return 'Nessun dato';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleString('it-IT', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return String(dateStr);
+  }
+}
 
 export default function ScraperManagerTab() {
-  const [config, setConfig] = useState<ScraperConfig>({
-    urls: [],
-    output_file: '/data/odg_structured.json',
-    schedules: ['07:00', '21:00'],
-    run_on_start: true,
-  });
-
+  const [isMounted, setIsMounted] = useState(false);
+  const [config, setConfig] = useState<ScraperConfig>(INITIAL_CONFIG);
   const [status, setStatus] = useState<ScraperStatus | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -28,33 +50,44 @@ export default function ScraperManagerTab() {
   const [newUrl, setNewUrl] = useState<string>('');
   const [newSchedule, setNewSchedule] = useState<string>('');
 
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     setIsLoading(true);
     try {
       const [resCfg, resStat] = await Promise.all([
-        fetch('/api/scraper/config'),
-        fetch('/api/scraper/status'),
+        fetch('/api/scraper/config', { cache: 'no-store' }),
+        fetch('/api/scraper/status', { cache: 'no-store' }),
       ]);
 
-      const dataCfg = await resCfg.json();
-      const dataStat = await resStat.json();
-
-      if (dataCfg.ok && dataCfg.config) {
-        setConfig(dataCfg.config);
+      if (resCfg.ok) {
+        const dataCfg = await resCfg.json();
+        if (dataCfg?.ok && dataCfg?.config) {
+          setConfig({
+            urls: Array.isArray(dataCfg.config.urls) ? dataCfg.config.urls : INITIAL_CONFIG.urls,
+            output_file: dataCfg.config.output_file || INITIAL_CONFIG.output_file,
+            schedules: Array.isArray(dataCfg.config.schedules) ? dataCfg.config.schedules : INITIAL_CONFIG.schedules,
+            run_on_start: dataCfg.config.run_on_start !== undefined ? Boolean(dataCfg.config.run_on_start) : INITIAL_CONFIG.run_on_start,
+          });
+        }
       }
-      if (dataStat.ok && dataStat.status) {
-        setStatus(dataStat.status);
+
+      if (resStat.ok) {
+        const dataStat = await resStat.json();
+        if (dataStat?.ok && dataStat?.status) {
+          setStatus(dataStat.status);
+        }
       }
     } catch (e: any) {
-      setFeedback({ type: 'error', message: 'Errore durante il caricamento dei dati: ' + e.message });
+      console.error('[ScraperTab] Errore caricamento:', e);
+      setFeedback({ type: 'error', message: 'Errore durante il caricamento dei dati: ' + (e?.message || 'sconosciuto') });
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
+    setIsMounted(true);
     loadAll();
-  }, []);
+  }, [loadAll]);
 
   const handleSaveConfig = async () => {
     setIsSaving(true);
@@ -71,7 +104,7 @@ export default function ScraperManagerTab() {
       setFeedback({ type: 'success', message: 'Configurazione salvata con successo in config.json!' });
       loadAll();
     } catch (e: any) {
-      setFeedback({ type: 'error', message: e.message || 'Errore durante il salvataggio' });
+      setFeedback({ type: 'error', message: e?.message || 'Errore durante il salvataggio' });
     } finally {
       setIsSaving(false);
     }
@@ -85,27 +118,32 @@ export default function ScraperManagerTab() {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || 'Errore esecuzione');
 
+      const pages = data?.result?.pagesScraped ?? 0;
+      const rows = data?.result?.totalRows ?? 0;
       setFeedback({
         type: 'success',
-        message: `Scraping completato con successo! Pagine: ${data.result.pagesScraped}, Righe totali estratte: ${data.result.totalRows}.`,
+        message: `Scraping completato con successo! Pagine analizzate: ${pages}, Righe estratte: ${rows}.`,
       });
       loadAll();
     } catch (e: any) {
-      setFeedback({ type: 'error', message: e.message || 'Errore durante lo scraping' });
+      setFeedback({ type: 'error', message: e?.message || 'Errore durante lo scraping' });
     } finally {
       setIsRunning(false);
     }
   };
 
   const addUrl = () => {
-    if (!newUrl.trim()) return;
-    if (config.urls.includes(newUrl.trim())) return;
-    setConfig({ ...config, urls: [...config.urls, newUrl.trim()] });
+    const trimmed = newUrl.trim();
+    if (!trimmed) return;
+    const currentUrls = Array.isArray(config.urls) ? config.urls : [];
+    if (currentUrls.includes(trimmed)) return;
+    setConfig({ ...config, urls: [...currentUrls, trimmed] });
     setNewUrl('');
   };
 
   const removeUrl = (index: number) => {
-    setConfig({ ...config, urls: config.urls.filter((_, i) => i !== index) });
+    const currentUrls = Array.isArray(config.urls) ? config.urls : [];
+    setConfig({ ...config, urls: currentUrls.filter((_, i) => i !== index) });
   };
 
   const addSchedule = () => {
@@ -114,14 +152,29 @@ export default function ScraperManagerTab() {
       setFeedback({ type: 'error', message: 'Formato orario non valido. Usa HH:mm (es. 07:00, 21:00)' });
       return;
     }
-    if (config.schedules.includes(trimmed)) return;
-    setConfig({ ...config, schedules: [...config.schedules, trimmed].sort() });
+    const currentSchedules = Array.isArray(config.schedules) ? config.schedules : [];
+    if (currentSchedules.includes(trimmed)) return;
+    setConfig({ ...config, schedules: [...currentSchedules, trimmed].sort() });
     setNewSchedule('');
   };
 
   const removeSchedule = (sched: string) => {
-    setConfig({ ...config, schedules: config.schedules.filter(s => s !== sched) });
+    const currentSchedules = Array.isArray(config.schedules) ? config.schedules : [];
+    setConfig({ ...config, schedules: currentSchedules.filter(s => s !== sched) });
   };
+
+  const urlsList = Array.isArray(config?.urls) ? config.urls : [];
+  const schedulesList = Array.isArray(config?.schedules) ? config.schedules : [];
+  const pagesList = Array.isArray(status?.pages) ? status.pages : [];
+
+  if (!isMounted) {
+    return (
+      <div className="p-8 text-center text-muted-foreground">
+        <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
+        Caricamento modulo Scraper...
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-6">
@@ -176,7 +229,7 @@ export default function ScraperManagerTab() {
             <div className="flex justify-between border-b pb-2">
               <span className="text-muted-foreground">Generato il:</span>
               <span className="font-medium font-mono text-xs">
-                {status?.lastGeneratedAt ? new Date(status.lastGeneratedAt).toLocaleString('it-IT') : 'Nessun dato'}
+                {formatDateSafe(status?.lastGeneratedAt)}
               </span>
             </div>
             <div className="flex justify-between border-b pb-2">
@@ -187,17 +240,17 @@ export default function ScraperManagerTab() {
               <span className="text-muted-foreground">Righe totali estratte:</span>
               <Badge variant="secondary" className="font-mono">{status?.totalRows ?? 0}</Badge>
             </div>
-            {status?.pages && status.pages.length > 0 && (
+            {pagesList.length > 0 && (
               <div className="pt-2">
                 <span className="text-xs font-semibold text-muted-foreground block mb-2">Dettaglio Pagine:</span>
-                <div className="space-y-1.5">
-                  {status.pages.map((p, i) => (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {pagesList.map((p, i) => (
                     <div key={i} className="text-xs p-2 rounded bg-muted/50 flex justify-between items-center">
                       <div>
-                        <div className="font-medium">{p.dateLabel || `Pagina ${i + 1}`}</div>
-                        <div className="text-[10px] text-muted-foreground">{p.lastUpdateRaw || 'N/D'}</div>
+                        <div className="font-medium">{p?.dateLabel || `Pagina ${i + 1}`}</div>
+                        <div className="text-[10px] text-muted-foreground">{p?.lastUpdateRaw || 'N/D'}</div>
                       </div>
-                      <Badge variant="outline" className="text-xs">{p.rowCount} righe</Badge>
+                      <Badge variant="outline" className="text-xs">{p?.rowCount ?? 0} righe</Badge>
                     </div>
                   ))}
                 </div>
@@ -258,7 +311,7 @@ export default function ScraperManagerTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="border rounded-md">
+          <div className="border rounded-md overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -268,7 +321,7 @@ export default function ScraperManagerTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {config.urls.map((url, i) => (
+                {urlsList.map((url, i) => (
                   <TableRow key={i}>
                     <TableCell className="font-mono text-xs">{i + 1}</TableCell>
                     <TableCell className="font-mono text-xs break-all">{url}</TableCell>
@@ -277,7 +330,7 @@ export default function ScraperManagerTab() {
                         variant="ghost"
                         size="icon"
                         onClick={() => removeUrl(i)}
-                        disabled={config.urls.length <= 1}
+                        disabled={urlsList.length <= 1}
                         aria-label="Rimuovi URL"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -289,14 +342,14 @@ export default function ScraperManagerTab() {
             </Table>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <Input
               placeholder="https://erp.teatroallascala.org/.../pxf_dspagine_coro.xhtml?pps=..."
               value={newUrl}
               onChange={(e) => setNewUrl(e.target.value)}
-              className="font-mono text-xs"
+              className="font-mono text-xs flex-1"
             />
-            <Button variant="outline" onClick={addUrl} disabled={!newUrl.trim()}>
+            <Button variant="outline" onClick={addUrl} disabled={!newUrl.trim()} className="shrink-0">
               <PlusCircle className="mr-2 h-4 w-4" /> Aggiungi URL
             </Button>
           </div>
@@ -318,7 +371,7 @@ export default function ScraperManagerTab() {
           <div>
             <Label className="text-xs font-medium text-muted-foreground block mb-2">Orari Attivi:</Label>
             <div className="flex flex-wrap gap-2">
-              {config.schedules.map((sched) => (
+              {schedulesList.map((sched) => (
                 <Badge key={sched} variant="secondary" className="font-mono text-sm py-1 px-3 flex items-center gap-2">
                   <span>{sched}</span>
                   <button
@@ -355,7 +408,7 @@ export default function ScraperManagerTab() {
             </Label>
             <Switch
               id="runOnStart"
-              checked={config.run_on_start}
+              checked={Boolean(config.run_on_start)}
               onCheckedChange={(checked) => setConfig({ ...config, run_on_start: checked })}
             />
           </div>
