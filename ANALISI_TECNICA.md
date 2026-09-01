@@ -4,7 +4,7 @@
 > **Autore**: ciacky85 (Carlo)
 > **Scopo**: Estrarre gli eventi dai programmi di lavoro del Coro del Teatro alla Scala (PDF e pagine web) e sincronizzarli su calendari Google tramite Service Account. Archiviare screenshot degli ODG su Google Drive.
 > **Data analisi**: 01/09/2026
-> **Ultimo aggiornamento**: 01/09/2026 — Modulo Autenticazione & Login, Gestione Utenti (Admin), Workflow di Approvazione Registrazioni, Associazione Granulare Utenti-Calendari Google
+> **Ultimo aggiornamento**: 01/09/2026 — Modulo Autenticazione & Login, Gestione Utenti (Admin), Workflow di Approvazione Registrazioni, Associazione Granulare Utenti-Calendari Google, RBAC Tab Visibility, Interfaccia Unificata Calendari, Ottimizzazione Docker Standalone, Diagnostica Dettagliata Google Drive API
 
 ---
 
@@ -42,7 +42,7 @@ graph LR
 | Modulo | Linguaggio | Ruolo |
 |--------|-----------|-------|
 | `odg-docker-scraper/` | Python 3.12 | Microservizio scraping periodico autonomo → produce `odg_structured.json` e legge `config.json` |
-| `scheduler/` | TypeScript/Next.js 15 | App web principale: parsing PDF, export Google Calendar, gestione Drive, **Pannello Admin ODG Scraper** |
+| `scheduler/` | TypeScript/Next.js 15 | App web principale: parsing PDF, export Google Calendar, gestione Drive, **Autenticazione Multi-Utente con RBAC**, **Pannello Admin ODG Scraper** |
 | `docker-compose.yml` | Docker Compose | Orchestrazione unificata di entrambi i container con mappatura volumi Portainer |
 | `scheduler_test/` | TypeScript/Next.js | ⚠️ **DEPRECATA** — Versione precedente, da rimuovere. Non è più in uso. |
 
@@ -158,52 +158,72 @@ scheduler/
 │   │       └── generate-export-error-report.ts  # Flow AI per report errori
 │   ├── app/
 │   │   ├── layout.tsx               # Root layout (fonts, providers)
-│   │   ├── page.tsx                 # Home page (3 tabs)
+│   │   ├── page.tsx                 # Home page (Login Gate + 5 tabs con RBAC)
 │   │   ├── globals.css              # CSS con variabili tema
 │   │   ├── config/
-│   │   │   ├── calendars.json       # Configurazione calendari Google
-│   │   │   ├── drive_config.json    # [NUOVO] Config Google Drive (URL cartella, salva locale)
+│   │   │   ├── calendars.json       # Configurazione calendari Google (con ownerUserId)
+│   │   │   ├── user.json            # [NUOVO] Database utenti (password in chiaro)
+│   │   │   ├── drive_config.json    # Config Google Drive (URL cartella, salva locale)
 │   │   │   ├── odg_update_time.json # Orari schedulazione cron
 │   │   │   └── service-account-key.json  # Chiave SA Google (SEGRETO)
 │   │   ├── api/
-│   │   │   ├── calendars/route.ts   # POST: salva config calendari su file
+│   │   │   ├── auth/                # [NUOVO] API Autenticazione
+│   │   │   │   ├── login/route.ts   # POST: login con password in chiaro
+│   │   │   │   ├── logout/route.ts  # POST: logout (clear cookie)
+│   │   │   │   ├── me/route.ts      # GET: profilo utente corrente
+│   │   │   │   └── register/route.ts # POST: registrazione nuovo utente
+│   │   │   ├── admin/               # [NUOVO] API Admin
+│   │   │   │   └── users/
+│   │   │   │       ├── route.ts     # GET/POST: lista utenti / crea utente
+│   │   │   │       └── [id]/route.ts # PUT/DELETE: modifica/elimina utente
+│   │   │   ├── calendars/route.ts   # GET/POST: calendari con ownerUserId e ownerName
 │   │   │   ├── settings/
-│   │   │   │   └── drive/route.ts   # [NUOVO] GET/POST: config Google Drive screenshot
+│   │   │   │   └── drive/route.ts   # GET/POST: config Google Drive screenshot
 │   │   │   ├── screenshots/
-│   │   │   │   └── upload/route.ts  # [NUOVO] POST: upload screenshot → Drive + locale
+│   │   │   │   └── upload/route.ts  # POST: upload screenshot → Drive + locale
+│   │   │   ├── scraper/             # API Scraper Manager
+│   │   │   │   ├── config/route.ts  # GET/POST: configurazione scraper
+│   │   │   │   ├── run/route.ts     # POST: esecuzione on-demand
+│   │   │   │   └── status/route.ts  # GET: stato scraper
 │   │   │   └── odg/
 │   │   │       ├── push/route.ts    # POST: push manuale ODG → Google Calendar
 │   │   │       └── cron/route.ts    # POST: push automatico (chiamato dal cron)
 │   │   └── components/
 │   │       ├── odg-tab.tsx          # Tab "ODG"
 │   │       ├── importa-calendario-tab.tsx  # Tab "Importa Calendario"
-│   │       ├── impostazioni-tab.tsx # Tab "Impostazioni" + Area Admin Google Drive
+│   │       ├── impostazioni-tab.tsx # Tab "Impostazioni" (Admin: hub calendari + Drive)
 │   │       ├── tabella-calendario.tsx  # Tabella eventi editabile
 │   │       ├── export-controls.tsx  # Controlli esportazione (select cal + pulsante)
+│   │       ├── admin/               # [NUOVO] Componenti Admin
+│   │       │   ├── gestione-utenti-tab.tsx  # Tab "Utenti" (solo gestione account)
+│   │       │   └── scraper-manager-tab.tsx  # Tab "Scraper"
 │   │       └── importa-calendario/
 │   │           └── upload-pdf.tsx   # Upload + trigger parsing PDF
 │   ├── components/ui/              # 35 componenti shadcn/ui
 │   ├── contexts/
+│   │   ├── auth-context.tsx         # [NUOVO] Provider autenticazione + RBAC + isCalendarAllowed
 │   │   ├── settings-context.tsx     # Provider impostazioni app
 │   │   └── calendar-context.tsx     # Provider gestione calendari
 │   ├── hooks/
 │   │   ├── use-toast.ts            # Hook toast notifications
 │   │   └── use-mobile.tsx          # Hook responsive
 │   └── lib/
-│       ├── types.ts                # Tipi TypeScript condivisi (+ googleDriveFolderUrl, salvaAncheInLocale)
+│       ├── types.ts                # Tipi TypeScript condivisi (+ ownerUserId, UserProfile, UserRole)
 │       ├── utils.ts                # cn() per classi CSS
 │       ├── constants.ts            # Costanti (TIMEZONE)
+│       ├── auth/                    # [NUOVO] Modulo Autenticazione
+│       │   └── users-store.ts      # Lettura/scrittura user.json, password in chiaro
 │       ├── calendar/
 │       │   └── export-events.ts    # Logica esportazione PDF → Google Cal
 │       ├── drive/
-│       │   └── google-drive.ts     # [NUOVO] Integrazione Google Drive (auth, upload, verify)
+│       │   └── google-drive.ts     # Integrazione Google Drive (auth, upload, verify, diagnostica dettagliata)
 │       ├── pdf/
 │       │   └── estraiProgrammaCoro.ts  # Parser PDF (client-side)
 │       ├── settings/
 │       │   └── store.ts            # Persistenza settings (localStorage) (+ defaults Drive)
 │       └── utils/
 │           └── date.ts             # Utility date
-├── Dockerfile                       # Multi-stage build (deps → build → run)
+├── Dockerfile                       # Multi-stage build standalone (deps → build → run) ~180 MB
 ├── Dockerfile.cron                  # Container Alpine con dcron
 ├── docker-compose.yml               # Orchestrazione app + cron
 ├── cron-runner.js                   # Scheduler JS (tick + match orari)
@@ -212,16 +232,46 @@ scheduler/
 ├── apphosting.yaml                  # Config Firebase App Hosting
 └── public/
     ├── odg_structured.json          # Dati ODG (shared con scraper via volume)
-    ├── odg_shots/                   # [NUOVO] Screenshot salvati in locale (se abilitato)
+    ├── odg_shots/                   # Screenshot salvati in locale (se abilitato)
     └── odg_sync.log                 # Log sincronizzazione
 ```
 
-### 3.3 L'Interfaccia Web — 3 Tab
+### 3.3 Login Gate & Autenticazione — **[NUOVO]**
 
-#### Tab 1: "Importa Calendario" (Parsing PDF)
+L'applicazione implementa un **Access Gate obbligatorio**: se l'utente non è autenticato, l'intera interfaccia è bloccata e viene mostrato esclusivamente il modulo di Login / Registrazione centrato a schermo.
+
+**Componenti**:
+- **`auth-context.tsx`**: React Context Provider che gestisce lo stato di autenticazione, il profilo utente, le funzioni `login()`, `logout()`, `register()`, e la funzione `isCalendarAllowed(calendarId)` per il filtraggio per-utente.
+- **`users-store.ts`**: Modulo server-side per lettura/scrittura del file `user.json` (e fallback `users.json`). Le **password sono gestite e salvate in chiaro** (requisito di progetto).
+- **API Routes**: `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`, `/api/auth/register`.
+- **Cookie di sessione**: `auth-token` (cookie HTTP-only) contenente l'ID utente.
+
+**Flusso Login**:
+1. Utente inserisce username e password.
+2. POST `/api/auth/login` → verifica `inputPassword.trim() === user.password.trim()` (chiaro).
+3. Se OK → set cookie `auth-token` e redirect alla home.
+4. Se KO → messaggio "Credenziali non valide".
+
+**Flusso Registrazione**:
+1. Utente compila nome, email, password.
+2. POST `/api/auth/register` → crea record con `status: 'pending'`.
+3. L'admin vede la richiesta nella scheda "Utenti" e può approvarla/rifiutarla.
+
+### 3.4 L'Interfaccia Web — 5 Tab con RBAC
+
+> **Visibilità Tab per Ruolo:**
+> | Tab | Admin | Corista |
+> |-----|:-----:|:-------:|
+> | Importa Calendario | ✅ | ✅ (solo proprio calendario) |
+> | ODG | ✅ | ✅ |
+> | Impostazioni | ✅ | ❌ |
+> | Scraper | ✅ | ❌ |
+> | Utenti | ✅ | ❌ |
+
+#### Tab 1: "Importa Calendario" (Parsing PDF) — Visibile a tutti
 **Flusso**:
 1. L'utente carica un file PDF (programma quindicinale prove del coro)
-2. [`estraiProgrammaCoro.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/lib/pdf/estraiProgrammaCoro.ts) esegue il parsing **client-side** con `pdfjs-dist`
+2. [`estraiProgrammaCoro.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/lib/pdf/estraiProgrammaCoro.ts) esegue il parsing **client-side** con `pdfjs-dist`
 3. Il parser:
    - Ricostruisce le righe di testo raggruppando gli item per coordinata Y
    - Identifica mese/anno dall'intestazione
@@ -231,31 +281,36 @@ scheduler/
    - Deduce luoghi da keyword (`PALCOSCENICO`, `SALA PROVE`, `RIDOTTO`, `ANSALDO`, etc.)
    - Gestisce asterischi concatenando il significato dal piè di pagina (de-dup)
    - Gestisce stati `ok` / `da_revisionare` (date non riconosciute)
-4. Viene mostrata una **tabella editabile** ([`tabella-calendario.tsx`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/components/tabella-calendario.tsx)):
+4. Viene mostrata una **tabella editabile** ([`tabella-calendario.tsx`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/components/tabella-calendario.tsx)):
    - Checkbox per selezione/deselezione
    - Campi editabili: descrizione, luogo, fasce orarie (1 e 2), data (con date picker)
    - Filtro testuale, ordinamento, selezione multipla
    - Badge "Da Revisionare" per righe problematiche
-5. Pulsante "Esporta su Google Calendar" → [`export-events.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/lib/calendar/export-events.ts) (Server Action)
+5. **Filtraggio per proprietario**: un utente Corista vede nel dropdown solo i calendari di cui è proprietario (`ownerUserId === user.id`). Gli admin vedono tutti.
+6. Pulsante "Esporta su Google Calendar" → [`export-events.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/lib/calendar/export-events.ts) (Server Action)
 
-#### Tab 2: "ODG" (Ordine del Giorno da Web)
+#### Tab 2: "ODG" (Ordine del Giorno da Web) — Visibile a tutti
 **Flusso**:
 1. Carica `/odg_structured.json` (via fetch, prodotto dallo scraper)
 2. Mostra tabella **read-only** con data/destinatario/luogo/orario/descrizione
-3. Selezionare calendario di destinazione e push tramite API `/api/odg/push`
+3. Selezionare calendario di destinazione (filtrato per proprietario) e push tramite API `/api/odg/push`
 4. Supporta **Dry Run** (simulazione senza modifiche)
 5. Mostra risultato sync: scanned/inserted/updated/unchanged/deleted/skipped
 
-#### Tab 3: "Impostazioni"
+#### Tab 3: "Impostazioni" (Solo Admin)
 - **Service Account**: mostra email del service account da aggiungere con permessi di scrittura a Google Calendar e con ruolo **Editor** alla cartella di Google Drive.
-- **Calendari "Importa Calendario"**: CRUD calendario di destinazione (label, calendarId, tipo, predefinito)
-- **Calendari "ODG"**: idem, tipo separato
-- **Salvataggio Screenshot su Google Drive (Area Amministratore)**:
+- **Hub Unico Gestione Calendari**: tabella centralizzata per TUTTI i calendari con:
+  - CRUD completo (aggiunta, modifica, eliminazione)
+  - Campi: etichetta, calendarId, tipo (importaCalendario/odg), predefinito
+  - **Assegnazione Proprietario (`ownerUserId`)**: menu a tendina con tutti gli utenti registrati per associare ogni calendario al suo corista proprietario
+  - Badge con nome proprietario nella colonna dedicata
+- **Salvataggio Screenshot su Google Drive**:
   - Input link/ID cartella Google Drive per gli screenshot
-  - Toggle switch "Salva anche in locale" (se attivo salva sia in locale che su Drive; se disattivo salva solo su Drive)
-  - Pulsante per testare la connessione e verificare i permessi dell'account di servizio sulla cartella Google Drive
-  - Configurazione persistita in `src/app/config/drive_config.json`
-#### Tab 4: "ODG Scraper Manager" (Area Amministratore) — **[NUOVO]**
+  - Toggle switch "Salva anche in locale"
+  - Pulsante per testare la connessione con **diagnostica errori dettagliata** (mostra il messaggio originale dell'API Google, con suggerimento di abilitare la Google Drive API se necessario)
+  - Configurazione persistita in `config/drive_config.json`
+
+#### Tab 4: "Scraper" (Solo Admin)
 - **Dashboard Stato**: mostra data/ora ultimo scraping, pagine analizzate, righe totali e dettaglio per data.
 - **Esecuzione Manuale On-Demand**: pulsante "Esegui Scraper Adesso" per forzare il refresh immediato dei dati senza attendere il cron.
 - **Configurazione URL Pagine ERP**: interfaccia per visualizzare, aggiungere, rimuovere e modificare le URL target.
@@ -263,7 +318,14 @@ scheduler/
 - **Opzione `run_on_start`**: toggle per scansione immediata all'avvio del container.
 - **Persistenza**: salva direttamente in `config.json` sul volume condiviso Portainer `/srv/docker_conf/configs/ScalaScheduler/odg-scraper/config`.
 
-### 3.4 Tipi TypeScript Principali
+#### Tab 5: "Utenti" (Solo Admin)
+- **Richieste in attesa**: sezione dedicata con pulsanti Approva/Rifiuta per le registrazioni pendenti.
+- **Elenco utenti**: tabella con nome, username, email, ruolo (Admin/Corista), stato account.
+- **Modifica utente**: popup con form pulito per aggiornare Nome, Username, Email, Password, Ruolo e Stato. **Nessuna gestione calendari** in questa scheda (centralizzata in Impostazioni).
+- **Creazione manuale**: pulsante per creare un account direttamente con status "approvato".
+- **Eliminazione**: pulsante per rimuovere un account.
+
+### 3.5 Tipi TypeScript Principali
 
 ```typescript
 // lib/types.ts
@@ -289,6 +351,24 @@ interface ImpostazioniCalendario {
   calendarId: string;       // ID Google Calendar
   tipo: 'importaCalendario' | 'odg';
   predefinito?: boolean;
+  ownerUserId?: string;     // [NUOVO] UUID del proprietario (da user.json)
+}
+
+// [NUOVO] Profilo utente (persistito in user.json)
+type UserRole = 'admin' | 'user';
+type UserStatus = 'approved' | 'pending' | 'disabled' | 'rejected';
+
+interface UserProfile {
+  id: string;                     // UUID v4
+  username: string;               // Email di accesso
+  nome: string;                   // Nome e Cognome
+  email: string;
+  password: string;               // Password in CHIARO (requisito di progetto)
+  role: UserRole;                 // 'admin' | 'user'
+  status: UserStatus;             // 'approved' | 'pending' | 'disabled' | 'rejected'
+  assignedCalendarIds: string[];  // Array di calendarId Google associati
+  createdAt: string;              // ISO-8601
+  approvedAt?: string;            // ISO-8601 (quando approvato dall'admin)
 }
 
 interface AppSettings {
@@ -297,12 +377,11 @@ interface AppSettings {
   timezone: 'Europe/Rome';
   consentiDateFuoriMese: boolean;
   exportMode: 'oauth' | 'serviceAccount';
-  // [NUOVO] Configurazione Google Drive Screenshot
-  googleDriveFolderUrl?: string; // Link o ID cartella Google Drive
-  salvaAncheInLocale?: boolean;  // true = salva anche in locale, false = solo Drive
+  googleDriveFolderUrl?: string;
+  salvaAncheInLocale?: boolean;
 }
 
-// [NUOVO] Configurazione persistita server-side (drive_config.json)
+// Configurazione persistita server-side (drive_config.json)
 interface DriveConfig {
   googleDriveFolderUrl: string;   // URL o ID inserito dall'utente
   googleDriveFolderId: string;    // ID estratto automaticamente
@@ -310,7 +389,7 @@ interface DriveConfig {
 }
 ```
 
-### 3.5 API Routes (Server-Side)
+### 3.6 API Routes (Server-Side)
 
 #### `POST /api/calendars`
 - **File**: [`api/calendars/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/api/calendars/route.ts)
@@ -363,7 +442,26 @@ interface DriveConfig {
 - **File**: [`api/scraper/run/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/scraper/run/route.ts)
 - **Funzione**: Esegue lo scraping on-demand in tempo reale e rigenera `odg_structured.json` istantaneamente
 
-### 3.6 Logica di Sincronizzazione Google Calendar (Dettaglio)
+#### `GET/POST /api/admin/users` — **[NUOVO]**
+- **File**: [`api/admin/users/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/admin/users/route.ts)
+- **GET**: Restituisce tutti gli utenti registrati
+- **POST**: Crea un nuovo utente manualmente (con status "approved")
+
+#### `PUT/DELETE /api/admin/users/[id]` — **[NUOVO]**
+- **File**: [`api/admin/users/[id]/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/admin/users/%5Bid%5D/route.ts)
+- **PUT**: Aggiorna ruolo, stato, nome, email, password di un utente. Supporta azioni speciali `approve` e `reject`.
+- **DELETE**: Elimina un utente dal sistema.
+
+#### `POST /api/auth/login` — **[NUOVO]**
+- **Funzione**: Verifica credenziali (password in chiaro) e imposta cookie `auth-token`
+
+#### `POST /api/auth/register` — **[NUOVO]**
+- **Funzione**: Crea utente con `status: 'pending'`, richiede approvazione admin
+
+#### `GET /api/auth/me` — **[NUOVO]**
+- **Funzione**: Restituisce profilo utente basato sul cookie di sessione
+
+### 3.7 Logica di Sincronizzazione Google Calendar (Dettaglio)
 
 La funzione `runSync()` implementa un pattern di **idempotent sync** con queste fasi:
 
@@ -392,7 +490,7 @@ odg_last_update_raw, odg_last_update_iso,
 odg_source_url, odg_export_generated_at
 ```
 
-### 3.7 Parser PDF — Dettaglio Tecnico
+### 3.8 Parser PDF — Dettaglio Tecnico
 
 Il file [`estraiProgrammaCoro.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/lib/pdf/estraiProgrammaCoro.ts) è il cuore del parsing dei programmi PDF quindicinali:
 
@@ -411,7 +509,7 @@ Il file [`estraiProgrammaCoro.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGr
 9. **Gestione asterischi**: se il testo contiene `*`, appende il significato della nota senza duplicati
 10. Ordinamento finale per data+orario
 
-### 3.8 Esportazione PDF → Google Calendar
+### 3.9 Esportazione PDF → Google Calendar
 
 [`export-events.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/lib/calendar/export-events.ts) (Server Action `'use server'`):
 
@@ -422,7 +520,7 @@ Il file [`estraiProgrammaCoro.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGr
 - Autenticazione: JWT Service Account (`google-auth-library`)
 - **Error handling**: accumula errori, poi invoca Genkit per generare report leggibile
 
-### 3.9 Modulo AI (Genkit)
+### 3.10 Modulo AI (Genkit)
 
 - **Configurazione**: [`ai/genkit.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/ai/genkit.ts)
   - Plugin: `@genkit-ai/google-genai`
@@ -433,7 +531,7 @@ Il file [`estraiProgrammaCoro.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGr
   - Output: `string` (report leggibile)
   - Prompt: chiede all'AI di riassumere gli errori e suggerire soluzioni
 
-### 3.10 Integrazione Google Drive — **[NUOVO]**
+### 3.11 Integrazione Google Drive
 
 Modulo [`lib/drive/google-drive.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/lib/drive/google-drive.ts) — gestisce l'intero ciclo di vita degli screenshot su Google Drive:
 
@@ -443,7 +541,7 @@ Modulo [`lib/drive/google-drive.ts`](file:///c:/Users/carlo/Desktop/ProgettiAnti
 | `createDriveAuth()` | Crea client JWT con scope Drive usando `service-account-key.json` |
 | `getDriveConfig()` | Legge `drive_config.json` con fallback a defaults |
 | `saveDriveConfig(config)` | Persiste la configurazione su file JSON |
-| `verifyDriveFolderAccess(folderId)` | Verifica che il SA abbia accesso alla cartella (errori 403/404 gestiti con messaggi utente) |
+| `verifyDriveFolderAccess(folderId)` | Verifica che il SA abbia accesso alla cartella. **Diagnostica dettagliata**: include `includeItemsFromAllDrives: true`, `supportsAllDrives: true` e mostra il messaggio di errore originale dell'API Google (es. "Google Drive API has not been used in project...") per errori 403/404 |
 | `uploadScreenshotToDrive(buffer, fileName, mimeType)` | Upload file nella cartella configurata via Google Drive API v3 |
 
 **Scope Google Drive richiesti**:
@@ -458,18 +556,19 @@ https://www.googleapis.com/auth/drive.file
 - `https://drive.google.com/open?id=1aBcD_efGhIjKlMnOpQrStUvWxYz`
 - `1aBcD_efGhIjKlMnOpQrStUvWxYz` (ID diretto)
 
-### 3.11 Gestione Stato Applicazione
+### 3.12 Gestione Stato Applicazione
 
 | Store | Tecnologia | Dati |
 |-------|-----------|------|
 | Settings | `localStorage` (browser) | `durataDefaultMin`, `timezone`, `consentiDateFuoriMese`, `exportMode`, `googleDriveFolderUrl`, `salvaAncheInLocale` |
-| Calendari | File JSON (`src/app/config/calendars.json`) via API | Lista calendari con label, ID Google, tipo, predefinito |
+| Calendari | File JSON (`config/calendars.json`) via API | Lista calendari con label, ID Google, tipo, predefinito, **ownerUserId** |
+| **Utenti** | **File JSON (`config/user.json`) via API** | **[NUOVO] Profili utenti con password in chiaro, ruoli, stato, calendari assegnati** |
 | **Drive Config** | **File JSON (`src/app/config/drive_config.json`) via API** | **[NUOVO] URL cartella, ID estratto, flag salva-locale** |
 | ODG Data | File JSON (`public/odg_structured.json`) | Dati scraper (read-only dalla web app) |
 | ODG Orari Cron | File JSON (`config/odg_update_time.json`) | Orari di esecuzione cron |
 | PDF Parsed Data | State React (in memoria) | Dati estratti dal PDF (non persistiti) |
 
-### 3.12 Configurazione Calendari
+### 3.13 Configurazione Calendari
 
 File [`calendars.json`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/calendars.json):
 ```json
@@ -495,7 +594,7 @@ File [`calendars.json`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/Scala
 }
 ```
 
-### 3.13 Configurazione Google Drive — **[NUOVO]**
+### 3.14 Configurazione Google Drive
 
 File `src/app/config/drive_config.json` (creato automaticamente al primo salvataggio):
 ```json
@@ -510,23 +609,50 @@ File `src/app/config/drive_config.json` (creato automaticamente al primo salvata
 
 ## 4. Infrastruttura Docker
 
-### 4.1 Docker Compose
+### 4.1 Docker Compose (Portainer)
 
 ```yaml
 services:
-  app:               # Scheduler Next.js + cron-runner
-    build: Dockerfile
-    ports: 3000:3000
+  scala-scheduler:
+    build:
+      context: ./scheduler
+      dockerfile: Dockerfile
+    container_name: ScalaScheduler
+    restart: always
+    ports:
+      - "3010:3000"
+    environment:
+      - TZ=Europe/Rome
+      - NODE_ENV=production
     volumes:
-      - ./src/app/config:/app/src/app/config:ro   # Config persistente
-      - ./public:/app/public                       # odg_structured.json + log
-  cron-scheduler:    # Container Alpine con dcron (ogni minuto)
-    build: Dockerfile.cron
+      - /srv/docker_conf/configs/ScalaScheduler/config:/app/config
+      - /srv/docker_conf/configs/ScalaScheduler/config:/app/src/app/config
+      - /srv/docker_conf/configs/ScalaScheduler/odg-scraper/config:/app/public
+    depends_on:
+      - odg-scraper
+
+  odg-scraper:
+    build:
+      context: ./odg-docker-scraper
+      dockerfile: Dockerfile
+    container_name: odg-scraper
+    restart: always
+    environment:
+      - TZ=Europe/Rome
     volumes:
-      - ./src/app/config/odg_update_time.json:/etc/config/odg_update_time.json:ro
+      - /srv/docker_conf/configs/ScalaScheduler/odg-scraper/config:/data
 ```
 
-### 4.2 Meccanismo Cron (Doppia Implementazione)
+### 4.2 Ottimizzazione Dockerfile (Standalone Build) — **[AGGIORNATO]**
+
+Il Dockerfile del scheduler usa un **build multi-stage con output `standalone`** per ridurre drasticamente le dimensioni dell'immagine:
+- **Prima**: ~1.5 GB (con tutti i `node_modules` e le dev dependencies)
+- **Dopo**: ~180 MB (riduzione dell'88%)
+- Il file `next.config.ts` include `output: 'standalone'` che produce un server autonomo minimale.
+- La fase finale del Dockerfile copia solo il server standalone, i file statici e le risorse pubbliche.
+- `npm cache clean --force` e rimozione di `.next/cache` per ulteriore risparmio.
+
+### 4.3 Meccanismo Cron (Doppia Implementazione)
 
 Ci sono **due sistemi cron** coesistenti:
 
@@ -547,12 +673,12 @@ curl -sS -X POST -H "Content-Type: application/json" "$API_ENDPOINT" --fail
 # 3 tentativi con retry
 ```
 
-### 4.3 Orari Aggiornamento Configurati
+### 4.4 Orari Aggiornamento Configurati
 ```json
 { "timezone": "Europe/Rome", "update_times": ["00:05", "08:05", "12:25", "21:05"] }
 ```
 
-### 4.4 Container Registry
+### 4.5 Container Registry
 - Docker Hub: `ciacky85/classroom-scheduler`
 - GHCR: `ghcr.io/ciacky85/classroom-scheduler`
 
@@ -563,13 +689,22 @@ curl -sS -X POST -H "Content-Type: application/json" "$API_ENDPOINT" --fail
 ### 5.1 Google Service Account
 - **Email**: `calendar-scheduler@sturdy-yen-458414-h7.iam.gserviceaccount.com`
 - **Scope Calendar**: `https://www.googleapis.com/auth/calendar`
-- **Scope Drive** (NUOVO): `https://www.googleapis.com/auth/drive`, `https://www.googleapis.com/auth/drive.file`
+- **Scope Drive**: `https://www.googleapis.com/auth/drive`, `https://www.googleapis.com/auth/drive.file`
 - **File chiave**: `service-account-key.json` (nel `.gitignore`)
 - **Requisiti**:
   - L'email del SA deve essere invitata come **Editor** nei calendari Google di destinazione
   - L'email del SA deve essere invitata come **Editor** nella cartella Google Drive per gli screenshot
+  - La **Google Drive API** deve essere **abilitata** nel progetto Google Cloud (`sturdy-yen-458414-h7`). Senza questa abilitazione si riceve errore 403.
 
-### 5.2 Gemini API Key
+### 5.2 Autenticazione Web — **[NUOVO]**
+- **Tipo**: Cookie-based session (`auth-token`)
+- **Password**: gestite e verificate **in chiaro** (`inputPassword.trim() === user.password.trim()`)
+- **File persistenza utenti**: `config/user.json` (array di `UserProfile`)
+- **Ruoli**: `admin` (accesso completo), `user` (solo Importa Calendario e ODG)
+- **Workflow registrazione**: utente si registra → stato `pending` → admin approva/rifiuta dalla tab "Utenti"
+- **Associazione calendario**: ogni calendario in `calendars.json` ha un campo `ownerUserId` che corrisponde all'`id` dell'utente in `user.json`. La funzione `isCalendarAllowed()` in `auth-context.tsx` verifica `cal.ownerUserId === user.id`.
+
+### 5.3 Gemini API Key
 - Variabile d'ambiente: `GEMINI_API_KEY`
 - Usata per il flow AI di generazione report errori
 
@@ -620,9 +755,10 @@ curl -sS -X POST -H "Content-Type: application/json" "$API_ENDPOINT" --fail
 - Non ci sono file di test (`*.test.ts`, `*.spec.ts`)
 - Nessuna configurazione Jest/Vitest
 
-### 6.7 Nessuna Autenticazione Web
-- L'interfaccia web è accessibile senza login
-- Chiunque acceda alla porta 3000 può modificare calendari e pushare eventi
+### 6.7 ~~Nessuna Autenticazione Web~~ ✅ RISOLTO
+- ~~L'interfaccia web è accessibile senza login~~
+- ~~Chiunque acceda alla porta 3000 può modificare calendari e pushare eventi~~
+- **Implementato** Login Gate obbligatorio, gestione utenti con approvazione, RBAC (Admin/Corista) e associazione utente-calendario.
 
 ---
 
@@ -747,28 +883,39 @@ docker-compose up --build
 ### `scheduler/` — Sorgenti Principali
 | File | Funzione |
 |------|----------|
-| `src/app/page.tsx` | Home page: 3 tab (Importa/ODG/Impostazioni) |
-| `src/app/layout.tsx` | Layout: fonts (Inter, Space Grotesk, Source Code Pro), SettingsProvider |
-| `src/lib/types.ts` | Tipi condivisi: `RigaCalendario`, `AppSettings` (+Drive), `ImpostazioniCalendario`, `DriveConfig` |
+| `src/app/page.tsx` | Home page: Login Gate + 5 tab con RBAC (Admin/Corista) |
+| `src/app/layout.tsx` | Layout: fonts (Inter, Space Grotesk, Source Code Pro), AuthProvider, SettingsProvider |
+| `src/lib/types.ts` | Tipi condivisi: `RigaCalendario`, `AppSettings`, `ImpostazioniCalendario` (+ownerUserId), `UserProfile`, `UserRole`, `UserStatus`, `DriveConfig` |
+| `src/lib/auth/users-store.ts` | **[NUOVO]** Lettura/scrittura user.json, password in chiaro |
 | `src/lib/pdf/estraiProgrammaCoro.ts` | Parser PDF client-side (310 righe) |
 | `src/lib/calendar/export-events.ts` | Server action: export righe → Google Calendar |
-| `src/lib/drive/google-drive.ts` | **[NUOVO]** Integrazione Google Drive: auth JWT, upload, verify, config |
+| `src/lib/drive/google-drive.ts` | Integrazione Google Drive: auth JWT, upload, verify, diagnostica dettagliata errori API |
 | `src/lib/settings/store.ts` | Persistenza settings (localStorage) (+defaults Drive) |
+| `src/contexts/auth-context.tsx` | **[NUOVO]** Provider autenticazione + RBAC + `isCalendarAllowed()` |
 | `src/contexts/settings-context.tsx` | React context: impostazioni app |
 | `src/contexts/calendar-context.tsx` | React context: CRUD calendari (save via API) |
-| `src/app/api/calendars/route.ts` | API POST: salva calendari su file JSON |
+| `src/app/components/admin/gestione-utenti-tab.tsx` | **[NUOVO]** Tab Utenti: approvazione, ruolo, stato, password (no calendari) |
+| `src/app/components/admin/scraper-manager-tab.tsx` | **[NUOVO]** Tab Scraper: dashboard stato, config, esecuzione on-demand |
+| `src/app/api/auth/login/route.ts` | **[NUOVO]** API POST: login con password in chiaro |
+| `src/app/api/auth/register/route.ts` | **[NUOVO]** API POST: registrazione utente (status pending) |
+| `src/app/api/auth/me/route.ts` | **[NUOVO]** API GET: profilo utente da cookie |
+| `src/app/api/auth/logout/route.ts` | **[NUOVO]** API POST: logout (clear cookie) |
+| `src/app/api/admin/users/route.ts` | **[NUOVO]** API GET/POST: lista/creazione utenti |
+| `src/app/api/admin/users/[id]/route.ts` | **[NUOVO]** API PUT/DELETE: modifica/elimina utente |
+| `src/app/api/calendars/route.ts` | API GET/POST: calendari con ownerUserId e risoluzione ownerName |
 | `src/app/api/odg/push/route.ts` | API POST: push manuale ODG → Google Cal |
 | `src/app/api/odg/cron/route.ts` | API POST: push automatico ODG → Google Cal |
-| `src/app/api/settings/drive/route.ts` | **[NUOVO]** API GET/POST: config Google Drive screenshot |
-| `src/app/api/screenshots/upload/route.ts` | **[NUOVO]** API POST: upload screenshot → Drive + locale |
-| `src/app/config/drive_config.json` | **[NUOVO]** Config persistita Google Drive |
+| `src/app/api/settings/drive/route.ts` | API GET/POST: config Google Drive screenshot |
+| `src/app/api/screenshots/upload/route.ts` | API POST: upload screenshot → Drive + locale |
+| `src/app/config/drive_config.json` | Config persistita Google Drive |
+| `src/app/config/user.json` | **[NUOVO]** Database utenti (password in chiaro) |
 | `src/ai/genkit.ts` | Config Genkit (Gemini 2.5 Flash) |
 | `src/ai/flows/generate-export-error-report.ts` | Flow AI per report errori |
 
 ### `scheduler/` — Infrastruttura
 | File | Funzione |
 |------|----------|
-| `Dockerfile` | Multi-stage: deps → build → run + cron-runner |
+| `Dockerfile` | Multi-stage standalone build (deps → build → run) ~180 MB |
 | `Dockerfile.cron` | Alpine + dcron (esegue run-cron.sh ogni minuto) |
 | `docker-compose.yml` | app (3000) + cron-scheduler |
 | `cron-runner.js` | Scheduler Node: polling 15s, match orari, esegue run-cron.sh |
@@ -834,7 +981,7 @@ NAS / Server Locale
 13. **Filtro per destinatario** nel tab ODG (es. solo "CORO UOMINI" o "CORO DONNE")
 14. **Dark mode** — Le variabili CSS `.dark` sono definite ma non c'è toggle nell'UI
 15. **PWA** — Aggiungere manifest e service worker per uso mobile offline
-16. **Autenticazione web** — Se il NAS è esposto in rete, aggiungere login
+16. ~~**Autenticazione web** — Se il NAS è esposto in rete, aggiungere login~~ ✅ **IMPLEMENTATO**
 
 ---
 
@@ -858,7 +1005,9 @@ NAS / Server Locale
 
 ## 14. Changelog Sessione 01/09/2026
 
-### Modifiche allo Scraper Python (`odg-docker-scraper/main.py`)
+### Fase 1: Integrazione Google Drive & Scraper
+
+#### Modifiche allo Scraper Python (`odg-docker-scraper/main.py`)
 
 | Funzione | Modifica |
 |----------|----------|
@@ -869,12 +1018,12 @@ NAS / Server Locale
 
 **Risultato pratico** — prima: `TRAVIATA * 6° PIANO` → dopo: `TRAVIATA * 6° PIANO - 16:15-16:45 Atto Primo - dalle 16:45 Atto Secondo e Terzo`
 
-### Nuovo file: `odg-docker-scraper/drive_uploader.py`
+#### Nuovo file: `odg-docker-scraper/drive_uploader.py`
 - Helper Python per inviare screenshot all'API scheduler
 - Legge `drive_config.json` per rispettare il flag `salvaAncheInLocale`
 - Usa `requests.post()` verso `http://localhost:3000/api/screenshots/upload`
 
-### Nuovi file Scheduler (Next.js)
+#### Nuovi file Scheduler (Google Drive)
 
 | File | Tipo | Descrizione |
 |------|------|-------------|
@@ -883,13 +1032,53 @@ NAS / Server Locale
 | `src/app/api/screenshots/upload/route.ts` | API Route | Upload screenshot → Drive + locale |
 | `src/app/config/drive_config.json` | Config | Persistenza server-side della configurazione Drive |
 
-### File Modificati Scheduler
+---
+
+### Fase 2: Autenticazione, RBAC e Gestione Utenti
+
+#### Nuovi file Scheduler (Auth & Users)
+
+| File | Tipo | Descrizione |
+|------|------|-------------|
+| `src/lib/auth/users-store.ts` | Utility | Lettura/scrittura `user.json`, gestione password in chiaro |
+| `src/contexts/auth-context.tsx` | Context | Provider autenticazione + RBAC + `isCalendarAllowed()` |
+| `src/app/api/auth/login/route.ts` | API Route | Login con verifica password in chiaro, set cookie `auth-token` |
+| `src/app/api/auth/logout/route.ts` | API Route | Logout (clear cookie) |
+| `src/app/api/auth/me/route.ts` | API Route | Profilo utente corrente da cookie |
+| `src/app/api/auth/register/route.ts` | API Route | Registrazione utente con status `pending` |
+| `src/app/api/admin/users/route.ts` | API Route | GET lista utenti / POST crea utente |
+| `src/app/api/admin/users/[id]/route.ts` | API Route | PUT modifica / DELETE elimina utente |
+| `src/app/components/admin/gestione-utenti-tab.tsx` | Componente | Tab gestione utenti: approvazione, ruolo, stato, password |
+
+#### File Modificati (Auth & RBAC)
 
 | File | Modifica |
 |------|----------|
-| `src/lib/types.ts` | Aggiunti `googleDriveFolderUrl?` e `salvaAncheInLocale?` a `AppSettings` |
-| `src/lib/settings/store.ts` | Aggiunti defaults `googleDriveFolderUrl: ''` e `salvaAncheInLocale: true` |
-| `src/app/components/impostazioni-tab.tsx` | Aggiunta sezione **"Salvataggio Screenshot su Google Drive (Area Amministratore)"** con: input URL cartella, switch salva-locale, pulsanti salva e verifica connessione, feedback visivo |
+| `src/app/page.tsx` | Login Gate obbligatorio: se non autenticato mostra solo form Login/Registrazione. Dopo login: 5 tab con visibilità condizionata al ruolo (Admin = 5 tab, Corista = solo Importa Calendario + ODG) |
+| `src/lib/types.ts` | Aggiunti `ownerUserId?` a `ImpostazioniCalendario`, nuovi tipi `UserProfile`, `UserRole`, `UserStatus` |
+| `src/app/api/calendars/route.ts` | Mappatura `ownerUserId` → `ownerName` in lettura, persistenza `ownerUserId` in scrittura |
+
+---
+
+### Fase 3: Interfaccia Unificata Calendari & Diagnostica Drive
+
+#### File Modificati
+
+| File | Modifica |
+|------|----------|
+| `src/app/components/impostazioni-tab.tsx` | Hub unico gestione calendari: aggiunta dropdown utenti per assegnazione `ownerUserId`, colonna Proprietario con badge, fix import `useEffect` |
+| `src/app/components/admin/gestione-utenti-tab.tsx` | Rimossa completamente la gestione calendari. Popup modifica utente rifatto con layout pulito (Nome, Username, Email, Password, Ruolo, Stato). Nessuna sovrapposizione visiva. |
+| `src/lib/drive/google-drive.ts` | `verifyDriveFolderAccess`: aggiunto `includeItemsFromAllDrives: true`, mostra messaggio di errore originale Google API (es. "Google Drive API has not been used in project..."), suggerisce di abilitare la Drive API nella Google Cloud Console |
+
+---
+
+### Fase 4: Ottimizzazione Docker
+
+| File | Modifica |
+|------|----------|
+| `scheduler/next.config.ts` | Abilitato `output: 'standalone'` per build minimale |
+| `scheduler/Dockerfile` | Riscritto con multi-stage standalone: pulizia cache, riduzione da ~1.5 GB a ~180 MB (taglio 88%) |
+| `docker-compose.yml` | Rimosso prefisso `image: ciacky85/...` per build locale da Portainer senza pull da Docker Hub |
 
 > [!NOTE]
-> Tutte le modifiche sono state sincronizzate nelle 3 copie parallele dei file (`src/`, `app/`, root) per mantenere la compatibilità con la struttura attuale del progetto. La duplicazione rimane un debito tecnico da risolvere (vedi §6.1 e §6.3).
+> Tutte le modifiche sono state sincronizzate nelle copie parallele dei file per mantenere la compatibilità con la struttura attuale del progetto. La duplicazione rimane un debito tecnico da risolvere (vedi §6.1 e §6.3).
