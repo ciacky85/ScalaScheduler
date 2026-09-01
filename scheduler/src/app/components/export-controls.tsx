@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select';
 import { useSettings } from '@/contexts/settings-context';
 import { useCalendars } from '@/contexts/calendar-context';
+import { useAuth } from '@/contexts/auth-context';
 import type { RigaCalendario } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { exportEventsToGoogleCalendar } from '@/lib/calendar/export-events';
@@ -26,12 +27,15 @@ interface ExportControlsProps {
 export default function ExportControls({ selectedRows, tipo }: ExportControlsProps) {
   const { settings } = useSettings();
   const { calendars } = useCalendars();
+  const { user, isAdmin, isCalendarAllowed } = useAuth();
   const { toast } = useToast();
   const [targetCalendarId, setTargetCalendarId] = useState<string>('');
   const [isExporting, setIsExporting] = useState(false);
   const [errorReport, setErrorReport] = useState<string | null>(null);
 
-  const availableCalendars = calendars.filter(c => c.tipo === tipo);
+  const availableCalendars = (calendars || [])
+    .filter(c => c && c.tipo === tipo)
+    .filter(c => !user || isAdmin || isCalendarAllowed(c.calendarId));
 
   const countEvents = () => {
     return selectedRows.reduce((acc, row) => {

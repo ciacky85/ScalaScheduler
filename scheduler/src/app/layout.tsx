@@ -4,6 +4,7 @@ import { Inter, Space_Grotesk, Source_Code_Pro } from 'next/font/google';
 import { cn } from '@/lib/utils';
 import { Toaster } from '@/components/ui/toaster';
 import { SettingsProvider } from '@/contexts/settings-context';
+import { AuthProvider } from '@/contexts/auth-context';
 
 const fontBody = Inter({
   subsets: ['latin'],
@@ -40,10 +41,12 @@ export default function RootLayout({
           fontCode.variable
         )}
       >
-        <SettingsProvider>
-          {children}
-          <Toaster />
-        </SettingsProvider>
+        <AuthProvider>
+          <SettingsProvider>
+            {children}
+            <Toaster />
+          </SettingsProvider>
+        </AuthProvider>
       </body>
     </html>
   );

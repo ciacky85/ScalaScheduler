@@ -60,3 +60,45 @@ export interface ScraperStatus {
   dataPath: string;
 }
 
+export type UserRole = 'admin' | 'user';
+export type UserStatus = 'pending' | 'approved' | 'rejected' | 'disabled';
+
+export interface User {
+  id: string;                    // UUID
+  username: string;              // Username univoco
+  nome: string;                  // Nome e Cognome
+  email?: string;
+  passwordHash: string;          // Password cifrata
+  salt: string;
+  role: UserRole;                // 'admin' | 'user'
+  status: UserStatus;            // 'pending' | 'approved' | 'rejected' | 'disabled'
+  assignedCalendarIds: string[]; // ID Google Calendar assegnati
+  createdAt: string;             // ISO Date
+  approvedAt?: string;
+  approvedBy?: string;
+  lastLoginAt?: string;
+}
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  nome: string;
+  email?: string;
+  role: UserRole;
+  status: UserStatus;
+  assignedCalendarIds: string[];
+  createdAt: string;
+  approvedAt?: string;
+  lastLoginAt?: string;
+}
+
+export interface UserSession {
+  userId: string;
+  username: string;
+  nome: string;
+  role: UserRole;
+  assignedCalendarIds: string[];
+  expiresAt: number; // timestamp ms
+}
+
+

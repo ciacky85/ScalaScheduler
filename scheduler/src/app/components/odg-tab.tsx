@@ -58,10 +58,13 @@ function safeFormatDate(isoStr?: string | null, fmt = "dd/MM/yyyy 'alle' HH:mm:s
   }
 }
 
+import { useAuth } from '@/contexts/auth-context';
+
 export default function OdgTab() {
   const [isMounted, setIsMounted] = useState(false);
   const { toast } = useToast();
   const { calendars } = useCalendars();
+  const { user, isAdmin, isCalendarAllowed } = useAuth();
   const [targetCalendarId, setTargetCalendarId] = useState<string>('');
   const [isExporting, setIsExporting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -70,7 +73,9 @@ export default function OdgTab() {
   const [lastSyncResult, setLastSyncResult] = useState<{ stats: SyncStats; details: any[]; dryRun: boolean } | null>(null);
   const [isDryRun, setIsDryRun] = useState(false);
 
-  const availableCalendars = (calendars || []).filter(c => c && c.tipo === 'odg');
+  const availableCalendars = (calendars || [])
+    .filter(c => c && c.tipo === 'odg')
+    .filter(c => !user || isAdmin || isCalendarAllowed(c.calendarId));
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);

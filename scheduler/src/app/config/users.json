@@ -1,0 +1,16 @@
+[
+  {
+    "id": "admin-root-001",
+    "username": "admin",
+    "nome": "Amministratore",
+    "email": "admin@teatroallascala.org",
+    "passwordHash": "a90f38b248a3cb3df1e51b27964b4c73bb85e94bcf93f9c64ec38d172e2cf5e1e2d14214f52e5eb9d0b67484d08eeaa74a5e38101fb9be594d2c77d6118d3efb",
+    "salt": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+    "role": "admin",
+    "status": "approved",
+    "assignedCalendarIds": [],
+    "createdAt": "2026-09-01T00:00:00.000Z",
+    "approvedAt": "2026-09-01T00:00:00.000Z",
+    "approvedBy": "system"
+  }
+]
