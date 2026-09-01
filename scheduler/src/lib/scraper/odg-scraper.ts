@@ -31,6 +31,22 @@ function getCandidateDataPaths(): string[] {
   ];
 }
 
+function normalizeUrlList(rawUrls: any): string[] {
+  if (!Array.isArray(rawUrls)) return DEFAULT_CONFIG.urls;
+  const result: string[] = [];
+  for (const item of rawUrls) {
+    if (typeof item === 'string' && item.trim()) {
+      result.push(item.trim());
+    } else if (item && typeof item === 'object') {
+      const u = item.url || item.name || '';
+      if (typeof u === 'string' && u.trim()) {
+        result.push(u.trim());
+      }
+    }
+  }
+  return result.length > 0 ? result : DEFAULT_CONFIG.urls;
+}
+
 export function getResolvedConfigPath(): string {
   for (const p of getCandidateConfigPaths()) {
     if (existsSync(p)) return p;
@@ -53,9 +69,9 @@ export async function loadScraperConfig(): Promise<{ config: ScraperConfig; file
       const parsed = JSON.parse(content);
       return {
         config: {
-          urls: Array.isArray(parsed.urls) ? parsed.urls : DEFAULT_CONFIG.urls,
+          urls: normalizeUrlList(parsed.urls),
           output_file: parsed.output_file || DEFAULT_CONFIG.output_file,
-          schedules: Array.isArray(parsed.schedules) ? parsed.schedules : DEFAULT_CONFIG.schedules,
+          schedules: Array.isArray(parsed.schedules) ? parsed.schedules.map(String) : DEFAULT_CONFIG.schedules,
           run_on_start: parsed.run_on_start !== undefined ? Boolean(parsed.run_on_start) : DEFAULT_CONFIG.run_on_start,
         },
         filePath,
@@ -71,9 +87,9 @@ export async function loadScraperConfig(): Promise<{ config: ScraperConfig; file
 export async function saveScraperConfig(newConfig: Partial<ScraperConfig>): Promise<{ config: ScraperConfig; savedPath: string }> {
   const { config: current } = await loadScraperConfig();
   const updated: ScraperConfig = {
-    urls: Array.isArray(newConfig.urls) && newConfig.urls.length > 0 ? newConfig.urls : current.urls,
+    urls: normalizeUrlList(newConfig.urls && newConfig.urls.length > 0 ? newConfig.urls : current.urls),
     output_file: newConfig.output_file || current.output_file,
-    schedules: Array.isArray(newConfig.schedules) && newConfig.schedules.length > 0 ? newConfig.schedules : current.schedules,
+    schedules: Array.isArray(newConfig.schedules) && newConfig.schedules.length > 0 ? newConfig.schedules.map(String) : current.schedules,
     run_on_start: newConfig.run_on_start !== undefined ? Boolean(newConfig.run_on_start) : current.run_on_start,
   };
 

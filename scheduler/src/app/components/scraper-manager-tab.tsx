@@ -321,23 +321,26 @@ export default function ScraperManagerTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {urlsList.map((url, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="font-mono text-xs">{i + 1}</TableCell>
-                    <TableCell className="font-mono text-xs break-all">{url}</TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeUrl(i)}
-                        disabled={urlsList.length <= 1}
-                        aria-label="Rimuovi URL"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {urlsList.map((rawUrl, i) => {
+                  const urlStr = typeof rawUrl === 'string' ? rawUrl : (rawUrl?.url || rawUrl?.name || JSON.stringify(rawUrl));
+                  return (
+                    <TableRow key={i}>
+                      <TableCell className="font-mono text-xs">{i + 1}</TableCell>
+                      <TableCell className="font-mono text-xs break-all">{urlStr}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeUrl(i)}
+                          disabled={urlsList.length <= 1}
+                          aria-label="Rimuovi URL"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -371,18 +374,21 @@ export default function ScraperManagerTab() {
           <div>
             <Label className="text-xs font-medium text-muted-foreground block mb-2">Orari Attivi:</Label>
             <div className="flex flex-wrap gap-2">
-              {schedulesList.map((sched) => (
-                <Badge key={sched} variant="secondary" className="font-mono text-sm py-1 px-3 flex items-center gap-2">
-                  <span>{sched}</span>
-                  <button
-                    onClick={() => removeSchedule(sched)}
-                    className="hover:text-destructive focus:outline-none"
-                    aria-label={`Rimuovi orario ${sched}`}
-                  >
-                    ×
-                  </button>
-                </Badge>
-              ))}
+              {schedulesList.map((rawSched, i) => {
+                const schedStr = typeof rawSched === 'string' ? rawSched : String(rawSched);
+                return (
+                  <Badge key={i} variant="secondary" className="font-mono text-sm py-1 px-3 flex items-center gap-2">
+                    <span>{schedStr}</span>
+                    <button
+                      onClick={() => removeSchedule(schedStr)}
+                      className="hover:text-destructive focus:outline-none"
+                      aria-label={`Rimuovi orario ${schedStr}`}
+                    >
+                      ×
+                    </button>
+                  </Badge>
+                );
+              })}
             </div>
           </div>
 

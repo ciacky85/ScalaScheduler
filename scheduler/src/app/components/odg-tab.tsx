@@ -286,11 +286,16 @@ export default function OdgTab() {
                   </Table>
                 </div>
                 <div className="flex justify-between items-center mt-2 text-xs text-muted-foreground">
-                  {page?.source_url ? (
-                    <a href={page.source_url} target="_blank" rel="noopener noreferrer" className="hover:underline">
-                      Fonte: {page.source_url}
-                    </a>
-                  ) : <span />}
+                  {(() => {
+                    const rawSrc = page?.source_url;
+                    const srcUrl = typeof rawSrc === 'string' ? rawSrc : ((rawSrc as any)?.url || (rawSrc as any)?.name || '');
+                    if (!srcUrl) return <span />;
+                    return (
+                      <a href={srcUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                        Fonte: {srcUrl}
+                      </a>
+                    );
+                  })()}
                   <span>Righe: {rows.length}</span>
                 </div>
               </div>

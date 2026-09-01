@@ -277,7 +277,14 @@ def extract_page(url: str):
 
 def run_once(cfg):
     pages = []
-    for url in cfg.get("urls", [])[:2]:
+    raw_urls = cfg.get("urls", [])
+    for raw_item in raw_urls[:2]:
+        if isinstance(raw_item, dict):
+            url = raw_item.get("url") or raw_item.get("name") or ""
+        else:
+            url = str(raw_item)
+        if not url:
+            continue
         try:
             log(f"Analisi pagina: {url}")
             pages.append(extract_page(url))
