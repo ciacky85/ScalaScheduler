@@ -39,6 +39,15 @@ export interface AppSettings {
   salvaAncheInLocale?: boolean;  // Se true salva anche in locale, altrimenti solo su Drive
 }
 
+export interface DriveConfig {
+  googleDriveFolderUrl: string;
+  googleDriveFolderId: string;
+  salvaAncheInLocale: boolean;
+  oauthClientId?: string;
+  oauthClientSecret?: string;
+  oauthRefreshToken?: string;
+}
+
 export interface ScraperConfig {
   urls: string[];
   output_file: string;

@@ -1,0 +1,8 @@
+{
+  "googleDriveFolderUrl": "https://drive.google.com/drive/folders/YOUR_FOLDER_ID",
+  "googleDriveFolderId": "YOUR_FOLDER_ID",
+  "salvaAncheInLocale": true,
+  "oauthClientId": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+  "oauthClientSecret": "YOUR_CLIENT_SECRET",
+  "oauthRefreshToken": "YOUR_REFRESH_TOKEN"
+}

@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { JWT } from 'google-auth-library';
+import { JWT, OAuth2Client } from 'google-auth-library';
 import fs from 'fs/promises';
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
@@ -8,9 +8,19 @@ export interface DriveConfig {
   googleDriveFolderUrl: string;
   googleDriveFolderId: string;
   salvaAncheInLocale: boolean;
+  oauthClientId?: string;
+  oauthClientSecret?: string;
+  oauthRefreshToken?: string;
 }
 
-const DRIVE_CONFIG_PATH = path.join(process.cwd(), 'src', 'app', 'config', 'drive_config.json');
+function getCandidateDriveConfigPaths(): string[] {
+  return [
+    path.join(process.cwd(), 'src', 'app', 'config', 'drive_config.json'),
+    path.join(process.cwd(), 'config', 'drive_config.json'),
+    '/app/config/drive_config.json',
+    '/app/src/app/config/drive_config.json',
+  ];
+}
 
 export function getServiceAccount(): { client_email?: string; private_key?: string } {
   const candidates = [
@@ -31,11 +41,6 @@ export function getServiceAccount(): { client_email?: string; private_key?: stri
 
 /**
  * Estrae l'ID della cartella Google Drive da un link o accetta direttamente l'ID.
- * Esempi supportati:
- * - https://drive.google.com/drive/folders/1aBcD_efGhIjKlMnOpQrStUvWxYz
- * - https://drive.google.com/drive/u/0/folders/1aBcD_efGhIjKlMnOpQrStUvWxYz
- * - https://drive.google.com/open?id=1aBcD_efGhIjKlMnOpQrStUvWxYz
- * - 1aBcD_efGhIjKlMnOpQrStUvWxYz
  */
 export function extractDriveFolderId(urlOrId: string | null | undefined): string {
   if (!urlOrId) return '';
@@ -53,7 +58,6 @@ export function extractDriveFolderId(urlOrId: string | null | undefined): string
     return matchId[1];
   }
 
-  // Se è un ID pulito (stringa alfanumerica con trattini/underscore)
   if (/^[a-zA-Z0-9_-]{10,}$/.test(trimmed)) {
     return trimmed;
   }
@@ -61,7 +65,47 @@ export function extractDriveFolderId(urlOrId: string | null | undefined): string
   return trimmed;
 }
 
-export function createDriveAuth(): JWT {
+export function getDriveConfig(): DriveConfig {
+  for (const cp of getCandidateDriveConfigPaths()) {
+    try {
+      if (existsSync(cp)) {
+        const content = readFileSync(cp, 'utf-8');
+        const parsed = JSON.parse(content);
+        return {
+          googleDriveFolderUrl: parsed.googleDriveFolderUrl || '',
+          googleDriveFolderId: parsed.googleDriveFolderId || extractDriveFolderId(parsed.googleDriveFolderUrl),
+          salvaAncheInLocale: parsed.salvaAncheInLocale !== undefined ? parsed.salvaAncheInLocale : true,
+          oauthClientId: parsed.oauthClientId,
+          oauthClientSecret: parsed.oauthClientSecret,
+          oauthRefreshToken: parsed.oauthRefreshToken,
+        };
+      }
+    } catch (error) {
+      console.error(`Errore lettura drive config (${cp}):`, error);
+    }
+  }
+
+  return {
+    googleDriveFolderUrl: '',
+    googleDriveFolderId: '',
+    salvaAncheInLocale: true,
+  };
+}
+
+/**
+ * Crea il client di autenticazione per Google Drive:
+ * 1. Priorità a OAuth 2.0 (User Token): agisce a nome dell'utente con quota personale
+ * 2. Fallback a Service Account (JWT)
+ */
+export function createDriveAuth(): OAuth2Client | JWT {
+  const config = getDriveConfig();
+
+  if (config.oauthClientId && config.oauthClientSecret && config.oauthRefreshToken) {
+    const oauth2Client = new OAuth2Client(config.oauthClientId, config.oauthClientSecret);
+    oauth2Client.setCredentials({ refresh_token: config.oauthRefreshToken });
+    return oauth2Client;
+  }
+
   const sa = getServiceAccount();
   return new JWT({
     email: sa.client_email || '',
@@ -71,28 +115,6 @@ export function createDriveAuth(): JWT {
       'https://www.googleapis.com/auth/drive.file',
     ],
   });
-}
-
-export function getDriveConfig(): DriveConfig {
-  try {
-    if (existsSync(DRIVE_CONFIG_PATH)) {
-      const content = readFileSync(DRIVE_CONFIG_PATH, 'utf-8');
-      const parsed = JSON.parse(content);
-      return {
-        googleDriveFolderUrl: parsed.googleDriveFolderUrl || '',
-        googleDriveFolderId: parsed.googleDriveFolderId || extractDriveFolderId(parsed.googleDriveFolderUrl),
-        salvaAncheInLocale: parsed.salvaAncheInLocale !== undefined ? parsed.salvaAncheInLocale : true,
-      };
-    }
-  } catch (error) {
-    console.error('Failed to read drive_config.json:', error);
-  }
-
-  return {
-    googleDriveFolderUrl: '',
-    googleDriveFolderId: '',
-    salvaAncheInLocale: true,
-  };
 }
 
 export async function saveDriveConfig(config: Partial<DriveConfig>): Promise<DriveConfig> {
@@ -105,11 +127,29 @@ export async function saveDriveConfig(config: Partial<DriveConfig>): Promise<Dri
     googleDriveFolderUrl: folderUrl,
     googleDriveFolderId: folderId,
     salvaAncheInLocale: salvaAncheInLocale,
+    oauthClientId: config.oauthClientId !== undefined ? config.oauthClientId : current.oauthClientId,
+    oauthClientSecret: config.oauthClientSecret !== undefined ? config.oauthClientSecret : current.oauthClientSecret,
+    oauthRefreshToken: config.oauthRefreshToken !== undefined ? config.oauthRefreshToken : current.oauthRefreshToken,
   };
 
-  const dir = path.dirname(DRIVE_CONFIG_PATH);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(DRIVE_CONFIG_PATH, JSON.stringify(updated, null, 2), 'utf-8');
+  const primaryPaths = [
+    path.join(process.cwd(), 'src', 'app', 'config', 'drive_config.json'),
+    path.join(process.cwd(), 'config', 'drive_config.json'),
+  ];
+
+  for (const p of primaryPaths) {
+    try {
+      await fs.mkdir(path.dirname(p), { recursive: true });
+      await fs.writeFile(p, JSON.stringify(updated, null, 2), 'utf-8');
+    } catch (_) {}
+  }
+
+  try {
+    if (existsSync('/app/config')) {
+      await fs.writeFile('/app/config/drive_config.json', JSON.stringify(updated, null, 2), 'utf-8');
+    }
+  } catch (_) {}
+
   return updated;
 }
 
@@ -139,21 +179,7 @@ export async function verifyDriveFolderAccess(folderId: string): Promise<{ ok: b
       folderName: file.name || 'Cartella Google Drive',
     };
   } catch (error: any) {
-    const sa = getServiceAccount();
-    const saEmail = sa.client_email || 'Service Account';
     const errorMsg = error?.response?.data?.error?.message || error?.message || 'Errore di connessione a Google Drive.';
-    if (error?.response?.status === 404) {
-      return {
-        ok: false,
-        error: `Cartella non trovata (404): "${errorMsg}". Verifica che il link sia corretto e che la cartella sia stata condivisa con l'account di servizio (${saEmail}) con permessi di Editor.`,
-      };
-    }
-    if (error?.response?.status === 403) {
-      return {
-        ok: false,
-        error: `Permesso negato (403): "${errorMsg}". Verifica che l'account di servizio (${saEmail}) sia Editor della cartella e che la "Google Drive API" sia ABILITATA nella console Google Cloud del tuo progetto.`,
-      };
-    }
     return { ok: false, error: `Errore Google Drive: ${errorMsg}` };
   }
 }
@@ -175,7 +201,7 @@ export async function uploadScreenshotToDrive(
     const auth = createDriveAuth();
     const drive = google.drive({ version: 'v3', auth });
 
-    // Se fileName contiene un prefisso data (es. 2026-09-03/nome.png), crea o recupera la sottocartella
+    // Gestione automatica sottocartella giornaliera (es. 2026-09-03)
     let targetFolderId = folderId;
     let finalFileName = fileName;
 
@@ -242,7 +268,7 @@ export async function uploadScreenshotToDrive(
     if (rawMsg.includes('Service Accounts do not have storage quota')) {
       return {
         ok: false,
-        error: 'Google Drive Error (403): I Service Account di Google hanno quota 0 MB e non possono caricare file in cartelle personali (@gmail.com). Funzionano solo su "Drive Condivisi" di Google Workspace o tramite OAuth2 / Google Drive Desktop.',
+        error: 'Google Drive Error (403): I Service Account di Google non possiedono quota di archiviazione per caricare file in cartelle personali (@gmail.com). Configura OAuth 2.0 per caricare con il tuo account utente.',
       };
     }
     return { ok: false, error: rawMsg };
