@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import type { ImpostazioniCalendario } from '@/lib/types';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PlusCircle, Edit, Trash2 } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, RefreshCw } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -274,10 +274,40 @@ export default function ImpostazioniTab() {
   const [driveUrl, setDriveUrl] = useState<string>('');
   const [salvaLocale, setSalvaLocale] = useState<boolean>(true);
   const [isTestingDrive, setIsTestingDrive] = useState<boolean>(false);
+  const [isSyncingShots, setIsSyncingShots] = useState<boolean>(false);
   const [driveStatus, setDriveStatus] = useState<{ type: 'idle' | 'success' | 'error'; message: string }>({
     type: 'idle',
     message: '',
   });
+
+  const handleSyncScreenshotsNow = async () => {
+    setIsSyncingShots(true);
+    setDriveStatus({ message: 'Sincronizzazione in corso...', type: 'idle' });
+    try {
+      const res = await fetch('/api/screenshots/sync', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || (data.result?.errors && data.result.errors.join(', ')) || 'Errore durante la sincronizzazione');
+      }
+      const uploaded = data?.result?.uploaded ?? 0;
+      const total = data?.result?.totalFound ?? 0;
+      setDriveStatus({
+        message: `Sincronizzazione completata con successo! ${uploaded} su ${total} screenshot caricati su Google Drive.`,
+        type: 'success',
+      });
+      toast({
+        title: 'Sincronizzazione Google Drive',
+        description: `${uploaded} screenshot caricati su Google Drive.`,
+      });
+    } catch (e: any) {
+      setDriveStatus({
+        message: e.message || 'Errore durante la sincronizzazione su Google Drive.',
+        type: 'error',
+      });
+    } finally {
+      setIsSyncingShots(false);
+    }
+  };
 
   // Carica la configurazione Google Drive dal backend al mount
   React.useEffect(() => {
@@ -443,6 +473,20 @@ export default function ImpostazioniTab() {
               variant="outline"
             >
               {isTestingDrive ? 'Verifica in corso...' : 'Verifica Connessione Cartella'}
+            </Button>
+            <Button
+              onClick={handleSyncScreenshotsNow}
+              disabled={isSyncingShots || isTestingDrive}
+              variant="secondary"
+            >
+              {isSyncingShots ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Sincronizzazione Drive in corso...
+                </>
+              ) : (
+                'Sincronizza Screenshot su Drive Ora'
+              )}
             </Button>
           </div>
         </CardContent>

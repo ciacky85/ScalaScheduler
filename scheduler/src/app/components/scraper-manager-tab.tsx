@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PlusCircle, Trash2, Play, RefreshCw, Save, CheckCircle2, AlertCircle, Clock, Globe, Database, Shield } from 'lucide-react';
+import { PlusCircle, Trash2, Play, RefreshCw, Save, CheckCircle2, AlertCircle, Clock, Globe, Database, Shield, UploadCloud } from 'lucide-react';
 import type { ScraperConfig, ScraperStatus } from '@/lib/types';
 
 const INITIAL_CONFIG: ScraperConfig = {
@@ -110,6 +110,8 @@ export default function ScraperManagerTab() {
     }
   };
 
+  const [isSyncingShots, setIsSyncingShots] = useState<boolean>(false);
+
   const handleRunScraper = async () => {
     setIsRunning(true);
     setFeedback(null);
@@ -120,15 +122,39 @@ export default function ScraperManagerTab() {
 
       const pages = data?.result?.pagesScraped ?? 0;
       const rows = data?.result?.totalRows ?? 0;
+      const uploaded = data?.driveSync?.uploaded ?? 0;
+      const syncNote = uploaded > 0 ? ` Caricati su Google Drive: ${uploaded} screenshot.` : '';
       setFeedback({
         type: 'success',
-        message: `Scraping completato con successo! Pagine analizzate: ${pages}, Righe estratte: ${rows}.`,
+        message: `Scraping completato con successo! Pagine analizzate: ${pages}, Righe estratte: ${rows}.${syncNote}`,
       });
       loadAll();
     } catch (e: any) {
       setFeedback({ type: 'error', message: e?.message || 'Errore durante lo scraping' });
     } finally {
       setIsRunning(false);
+    }
+  };
+
+  const handleSyncScreenshots = async () => {
+    setIsSyncingShots(true);
+    setFeedback(null);
+    try {
+      const res = await fetch('/api/screenshots/sync', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || (data.result?.errors && data.result.errors.join(', ')) || 'Errore sincronizzazione');
+      }
+      const uploaded = data?.result?.uploaded ?? 0;
+      const total = data?.result?.totalFound ?? 0;
+      setFeedback({
+        type: 'success',
+        message: `Sincronizzazione completata! ${uploaded} su ${total} screenshot caricati con successo su Google Drive.`,
+      });
+    } catch (e: any) {
+      setFeedback({ type: 'error', message: e?.message || 'Errore durante la sincronizzazione su Google Drive' });
+    } finally {
+      setIsSyncingShots(false);
     }
   };
 
@@ -281,7 +307,7 @@ export default function ScraperManagerTab() {
               className="w-full"
               size="lg"
               onClick={handleRunScraper}
-              disabled={isRunning || isLoading}
+              disabled={isRunning || isLoading || isSyncingShots}
             >
               {isRunning ? (
                 <>
@@ -292,6 +318,26 @@ export default function ScraperManagerTab() {
                 <>
                   <Play className="mr-2 h-4 w-4 fill-current" />
                   Esegui Scraper Adesso
+                </>
+              )}
+            </Button>
+
+            <Button
+              className="w-full mt-2"
+              variant="outline"
+              size="default"
+              onClick={handleSyncScreenshots}
+              disabled={isSyncingShots || isRunning || isLoading}
+            >
+              {isSyncingShots ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Sincronizzazione Drive in corso...
+                </>
+              ) : (
+                <>
+                  <UploadCloud className="mr-2 h-4 w-4 text-primary" />
+                  Sincronizza Screenshot su Google Drive Ora
                 </>
               )}
             </Button>

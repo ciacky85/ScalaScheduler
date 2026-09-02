@@ -13,6 +13,11 @@ export interface DriveConfig {
   oauthRefreshToken?: string;
 }
 
+const ENV_OAUTH_CLIENT_ID = process.env.GOOGLE_DRIVE_OAUTH_CLIENT_ID || '';
+const ENV_OAUTH_CLIENT_SECRET = process.env.GOOGLE_DRIVE_OAUTH_CLIENT_SECRET || '';
+const ENV_OAUTH_REFRESH_TOKEN = process.env.GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN || '';
+const DEFAULT_DRIVE_FOLDER_ID = '1mqmjTTtz5-c0Fa8hDOfkx6ph1tWKCCs_';
+
 function getCandidateDriveConfigPaths(): string[] {
   return [
     path.join(process.cwd(), 'src', 'app', 'config', 'drive_config.json'),
@@ -66,29 +71,29 @@ export function extractDriveFolderId(urlOrId: string | null | undefined): string
 }
 
 export function getDriveConfig(): DriveConfig {
+  let fileConfig: Partial<DriveConfig> = {};
   for (const cp of getCandidateDriveConfigPaths()) {
     try {
       if (existsSync(cp)) {
         const content = readFileSync(cp, 'utf-8');
-        const parsed = JSON.parse(content);
-        return {
-          googleDriveFolderUrl: parsed.googleDriveFolderUrl || '',
-          googleDriveFolderId: parsed.googleDriveFolderId || extractDriveFolderId(parsed.googleDriveFolderUrl),
-          salvaAncheInLocale: parsed.salvaAncheInLocale !== undefined ? parsed.salvaAncheInLocale : true,
-          oauthClientId: parsed.oauthClientId,
-          oauthClientSecret: parsed.oauthClientSecret,
-          oauthRefreshToken: parsed.oauthRefreshToken,
-        };
+        fileConfig = JSON.parse(content);
+        break;
       }
     } catch (error) {
       console.error(`Errore lettura drive config (${cp}):`, error);
     }
   }
 
+  const folderUrl = fileConfig.googleDriveFolderUrl || `https://drive.google.com/drive/folders/${DEFAULT_DRIVE_FOLDER_ID}`;
+  const folderId = fileConfig.googleDriveFolderId || extractDriveFolderId(folderUrl) || DEFAULT_DRIVE_FOLDER_ID;
+
   return {
-    googleDriveFolderUrl: '',
-    googleDriveFolderId: '',
-    salvaAncheInLocale: true,
+    googleDriveFolderUrl: folderUrl,
+    googleDriveFolderId: folderId,
+    salvaAncheInLocale: fileConfig.salvaAncheInLocale !== undefined ? fileConfig.salvaAncheInLocale : true,
+    oauthClientId: fileConfig.oauthClientId || ENV_OAUTH_CLIENT_ID,
+    oauthClientSecret: fileConfig.oauthClientSecret || ENV_OAUTH_CLIENT_SECRET,
+    oauthRefreshToken: fileConfig.oauthRefreshToken || ENV_OAUTH_REFRESH_TOKEN,
   };
 }
 
@@ -273,4 +278,94 @@ export async function uploadScreenshotToDrive(
     }
     return { ok: false, error: rawMsg };
   }
+}
+
+/**
+ * Sincronizza tutti gli screenshot locali presenti in public/odg_shots (o /data/odg_shots) su Google Drive.
+ */
+export async function syncLocalShotsToDrive(): Promise<{
+  ok: boolean;
+  totalFound: number;
+  uploaded: number;
+  errors: string[];
+}> {
+  const config = getDriveConfig();
+  if (!config.googleDriveFolderId) {
+    return { ok: false, totalFound: 0, uploaded: 0, errors: ['Nessuna cartella Google Drive configurata.'] };
+  }
+
+  const candidateShotDirs = [
+    path.join(process.cwd(), 'public', 'odg_shots'),
+    '/app/public/odg_shots',
+    '/data/odg_shots',
+    path.join(process.cwd(), 'odg_shots'),
+  ];
+
+  let shotsDir: string | null = null;
+  for (const d of candidateShotDirs) {
+    if (existsSync(d)) {
+      shotsDir = d;
+      break;
+    }
+  }
+
+  if (!shotsDir) {
+    return { ok: true, totalFound: 0, uploaded: 0, errors: ['Nessuna cartella odg_shots trovata localmente.'] };
+  }
+
+  const errors: string[] = [];
+  let uploadedCount = 0;
+  let totalFound = 0;
+
+  try {
+    const entries = await fs.readdir(shotsDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const subDirPath = path.join(shotsDir, entry.name);
+        const files = await fs.readdir(subDirPath);
+        for (const file of files) {
+          if (file.toLowerCase().endsWith('.png')) {
+            totalFound++;
+            const relativeName = `${entry.name}/${file}`;
+            const fullFilePath = path.join(subDirPath, file);
+            try {
+              const buffer = await fs.readFile(fullFilePath);
+              const res = await uploadScreenshotToDrive(buffer, relativeName, 'image/png', config.googleDriveFolderId);
+              if (res.ok) {
+                uploadedCount++;
+              } else {
+                errors.push(`${relativeName}: ${res.error || 'Errore upload'}`);
+              }
+            } catch (err: any) {
+              errors.push(`${relativeName}: ${err.message}`);
+            }
+          }
+        }
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.png')) {
+        totalFound++;
+        const fullFilePath = path.join(shotsDir, entry.name);
+        try {
+          const buffer = await fs.readFile(fullFilePath);
+          const res = await uploadScreenshotToDrive(buffer, entry.name, 'image/png', config.googleDriveFolderId);
+          if (res.ok) {
+            uploadedCount++;
+          } else {
+            errors.push(`${entry.name}: ${res.error || 'Errore upload'}`);
+          }
+        } catch (err: any) {
+          errors.push(`${entry.name}: ${err.message}`);
+        }
+      }
+    }
+  } catch (err: any) {
+    return { ok: false, totalFound, uploaded: uploadedCount, errors: [err.message] };
+  }
+
+  return {
+    ok: errors.length === 0,
+    totalFound,
+    uploaded: uploadedCount,
+    errors,
+  };
 }

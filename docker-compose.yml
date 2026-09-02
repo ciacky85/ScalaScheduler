@@ -15,6 +15,9 @@ services:
     environment:
       - TZ=Europe/Rome
       - NODE_ENV=production
+      - GOOGLE_DRIVE_OAUTH_CLIENT_ID=${GOOGLE_DRIVE_OAUTH_CLIENT_ID:-}
+      - GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=${GOOGLE_DRIVE_OAUTH_CLIENT_SECRET:-}
+      - GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN=${GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN:-}
     volumes:
       # Configurazioni WebApp (calendari, drive_config, service-account-key, users.json)
       - /srv/docker_conf/configs/ScalaScheduler/config:/app/config
