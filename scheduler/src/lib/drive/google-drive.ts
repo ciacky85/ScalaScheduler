@@ -175,6 +175,45 @@ export async function uploadScreenshotToDrive(
     const auth = createDriveAuth();
     const drive = google.drive({ version: 'v3', auth });
 
+    // Se fileName contiene un prefisso data (es. 2026-09-03/nome.png), crea o recupera la sottocartella
+    let targetFolderId = folderId;
+    let finalFileName = fileName;
+
+    const parts = fileName.replace(/\\/g, '/').split('/');
+    if (parts.length > 1) {
+      const subfolderName = parts[0];
+      finalFileName = parts.slice(1).join('_');
+
+      try {
+        const q = `'${folderId}' in parents and name = '${subfolderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+        const listRes = await drive.files.list({
+          q,
+          fields: 'files(id, name)',
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        });
+
+        if (listRes.data.files && listRes.data.files.length > 0) {
+          targetFolderId = listRes.data.files[0].id!;
+        } else {
+          const createFolderRes = await drive.files.create({
+            requestBody: {
+              name: subfolderName,
+              mimeType: 'application/vnd.google-apps.folder',
+              parents: [folderId],
+            },
+            fields: 'id, name',
+            supportsAllDrives: true,
+          });
+          if (createFolderRes.data.id) {
+            targetFolderId = createFolderRes.data.id;
+          }
+        }
+      } catch (subErr) {
+        console.warn('[GoogleDrive] Impossibile gestire sottocartella data, uso cartella principale:', subErr);
+      }
+    }
+
     const { Readable } = await import('stream');
     const stream = new Readable();
     stream.push(fileBuffer);
@@ -182,8 +221,8 @@ export async function uploadScreenshotToDrive(
 
     const response = await drive.files.create({
       requestBody: {
-        name: fileName,
-        parents: [folderId],
+        name: finalFileName,
+        parents: [targetFolderId],
       },
       media: {
         mimeType: mimeType,
@@ -199,7 +238,13 @@ export async function uploadScreenshotToDrive(
       webViewLink: response.data.webViewLink || undefined,
     };
   } catch (error: any) {
-    const errorMsg = error?.response?.data?.error?.message || error.message || 'Errore durante il caricamento su Google Drive.';
-    return { ok: false, error: errorMsg };
+    const rawMsg = error?.response?.data?.error?.message || error.message || 'Errore durante il caricamento su Google Drive.';
+    if (rawMsg.includes('Service Accounts do not have storage quota')) {
+      return {
+        ok: false,
+        error: 'Google Drive Error (403): I Service Account di Google hanno quota 0 MB e non possono caricare file in cartelle personali (@gmail.com). Funzionano solo su "Drive Condivisi" di Google Workspace o tramite OAuth2 / Google Drive Desktop.',
+      };
+    }
+    return { ok: false, error: rawMsg };
   }
 }

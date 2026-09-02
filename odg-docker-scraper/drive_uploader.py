@@ -62,25 +62,36 @@ def handle_screenshot(
         print("[DriveUploader] Salvataggio locale disattivato da configurazione.")
 
     # 2. Upload tramite API Next.js / Google Drive
-    target_urls = [scheduler_api_url.rstrip("/"), "http://localhost:3000", "http://127.0.0.1:3000"]
-    # Rimuove duplicati preservando l'ordine
+    target_urls = [
+        scheduler_api_url.rstrip("/"),
+        "http://scala-scheduler:3000",
+        "http://ScalaScheduler:3000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+    ]
     unique_urls = list(dict.fromkeys(target_urls))
 
-    for base_url in unique_urls:
-        try:
-            api_endpoint = f"{base_url}/api/screenshots/upload"
-            files = {"file": (os.path.basename(filename), image_bytes, "image/png")}
-            data = {"filename": filename}
-            resp = requests.post(api_endpoint, files=files, data=data, timeout=30)
-            if resp.ok:
-                res_json = resp.json()
-                print(f"[DriveUploader] Risultato upload Drive ({base_url}): {res_json.get('driveResult')}")
-                return res_json
-            else:
-                print(f"[DriveUploader] Endpoint {base_url} ha risposto con errore ({resp.status_code}): {resp.text}")
-        except Exception as e:
-            # Continua al prossimo candidato url se questo fallisce
-            continue
+    max_retries = 6
+    for attempt in range(1, max_retries + 1):
+        for base_url in unique_urls:
+            try:
+                api_endpoint = f"{base_url}/api/screenshots/upload"
+                files = {"file": (os.path.basename(filename), image_bytes, "image/png")}
+                data = {"filename": filename}
+                resp = requests.post(api_endpoint, files=files, data=data, timeout=30)
+                if resp.ok:
+                    res_json = resp.json()
+                    print(f"[DriveUploader] Risultato upload Drive ({base_url}): {res_json.get('driveResult')}")
+                    return res_json
+                else:
+                    print(f"[DriveUploader] Endpoint {base_url} ha risposto con errore ({resp.status_code}): {resp.text}")
+            except Exception:
+                continue
+
+        if attempt < max_retries:
+            print(f"[DriveUploader] Scheduler non ancora pronto, attesa 5s (tentativo {attempt}/{max_retries})...")
+            import time
+            time.sleep(5)
 
     print("[DriveUploader] Impossibile contattare l'endpoint scheduler per l'upload Drive.")
     return None
