@@ -182,7 +182,7 @@ def maybe_capture(
 
     api_url = scheduler_api_url or os.environ.get("SCHEDULER_API_URL", "http://scala-scheduler:3000")
 
-    # 1. Baseline mancante -> cattura
+    # 1. Baseline mancante -> cattura e carica
     if not baseline_path.exists():
         print(f"[shots] Baseline mancante per {key}, la creo in: {baseline_path}")
         image_bytes = take_screenshot(url, baseline_path, full_page=full_page, tzname=tzname)
@@ -191,16 +191,35 @@ def maybe_capture(
 
         if handle_screenshot:
             try:
-                handle_screenshot(
+                res = handle_screenshot(
                     image_bytes=image_bytes,
                     filename=f"{today}/{baseline_name}",
                     local_dest_dir=str(output_dir),
                     scheduler_api_url=api_url,
                 )
+                if res and res.get("driveResult", {}).get("ok"):
+                    state.setdefault("drive_uploaded", {})[key] = True
+                    save_state(state_path, state)
             except Exception as e:
                 print(f"[shots] Errore upload drive baseline: {e}")
 
         return baseline_path
+
+    # Se lo screenshot esiste già in locale ma non è stato ancora sincronizzato su Drive, caricalo ora
+    if handle_screenshot and not state.get("drive_uploaded", {}).get(key):
+        try:
+            print(f"[shots] Sincronizzo screenshot locale esistente su Google Drive per {key}: {baseline_path}")
+            res = handle_screenshot(
+                image_bytes=baseline_path.read_bytes(),
+                filename=f"{today}/{baseline_name}",
+                local_dest_dir=str(output_dir),
+                scheduler_api_url=api_url,
+            )
+            if res and res.get("driveResult", {}).get("ok"):
+                state.setdefault("drive_uploaded", {})[key] = True
+                save_state(state_path, state)
+        except Exception as e:
+            print(f"[shots] Errore sincronizzazione Drive differita: {e}")
 
     # 2. State non ha hash -> inizializza senza nuovo scatto
     if prev_hash is None:
