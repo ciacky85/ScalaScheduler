@@ -5,7 +5,7 @@ import requests
 from pathlib import Path
 
 CONFIG_PATH = os.environ.get("DRIVE_CONFIG_PATH", "/data/drive_config.json")
-SERVICE_ACCOUNT_KEY_PATH = os.environ.get("SERVICE_ACCOUNT_KEY_PATH", "/data/service-account-key.json")
+DEFAULT_SCHEDULER_URL = os.environ.get("SCHEDULER_API_URL", "http://scala-scheduler:3000")
 
 def extract_drive_folder_id(url_or_id: str) -> str:
     if not url_or_id:
@@ -36,38 +36,51 @@ def load_drive_config():
             print(f"[DriveUploader] Errore lettura config: {e}")
     return defaults
 
-def handle_screenshot(image_bytes: bytes, filename: str, local_dest_dir: str = "/data/odg_shots", scheduler_api_url: str = "http://localhost:3000"):
+def handle_screenshot(
+    image_bytes: bytes,
+    filename: str,
+    local_dest_dir: str = "/data/odg_shots",
+    scheduler_api_url: str = DEFAULT_SCHEDULER_URL
+):
     """
     Gestisce il salvataggio dello screenshot:
-    - Se 'salvaAncheInLocale' è True: salva localmente in local_dest_dir
+    - Se 'salvaAncheInLocale' è True: salva localmente in local_dest_dir / filename
     - Invia lo screenshot alla webapp scheduler per il caricamento su Google Drive
     """
     cfg = load_drive_config()
     salva_locale = cfg.get("salvaAncheInLocale", True)
     
-    # 1. Salvataggio locale
+    # 1. Salvataggio locale (se non già scritto altrove)
     if salva_locale:
-        os.makedirs(local_dest_dir, exist_ok=True)
         local_path = os.path.join(local_dest_dir, filename)
-        with open(local_path, "wb") as f:
-            f.write(image_bytes)
-        print(f"[DriveUploader] Screenshot salvato in locale: {local_path}")
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        if not os.path.exists(local_path):
+            with open(local_path, "wb") as f:
+                f.write(image_bytes)
+            print(f"[DriveUploader] Screenshot salvato in locale: {local_path}")
     else:
         print("[DriveUploader] Salvataggio locale disattivato da configurazione.")
 
     # 2. Upload tramite API Next.js / Google Drive
-    try:
-        api_endpoint = f"{scheduler_api_url.rstrip('/')}/api/screenshots/upload"
-        files = {"file": (filename, image_bytes, "image/png")}
-        data = {"filename": filename}
-        resp = requests.post(api_endpoint, files=files, data=data, timeout=30)
-        if resp.ok:
-            res_json = resp.json()
-            print(f"[DriveUploader] Risultato upload Drive: {res_json.get('driveResult')}")
-            return res_json
-        else:
-            print(f"[DriveUploader] Errore chiamata API upload ({resp.status_code}): {resp.text}")
-    except Exception as e:
-        print(f"[DriveUploader] Impossibile contattare l'endpoint scheduler per l'upload Drive: {e}")
+    target_urls = [scheduler_api_url.rstrip("/"), "http://localhost:3000", "http://127.0.0.1:3000"]
+    # Rimuove duplicati preservando l'ordine
+    unique_urls = list(dict.fromkeys(target_urls))
 
+    for base_url in unique_urls:
+        try:
+            api_endpoint = f"{base_url}/api/screenshots/upload"
+            files = {"file": (os.path.basename(filename), image_bytes, "image/png")}
+            data = {"filename": filename}
+            resp = requests.post(api_endpoint, files=files, data=data, timeout=30)
+            if resp.ok:
+                res_json = resp.json()
+                print(f"[DriveUploader] Risultato upload Drive ({base_url}): {res_json.get('driveResult')}")
+                return res_json
+            else:
+                print(f"[DriveUploader] Endpoint {base_url} ha risposto con errore ({resp.status_code}): {resp.text}")
+        except Exception as e:
+            # Continua al prossimo candidato url se questo fallisce
+            continue
+
+    print("[DriveUploader] Impossibile contattare l'endpoint scheduler per l'upload Drive.")
     return None

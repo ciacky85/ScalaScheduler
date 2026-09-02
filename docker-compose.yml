@@ -35,6 +35,7 @@ services:
     restart: unless-stopped
     environment:
       - TZ=Europe/Rome
+      - SCHEDULER_API_URL=http://scala-scheduler:3000
     volumes:
-      # Volume dati: legge config.json e scrive odg_structured.json
+      # Volume dati: legge config.json e scrive odg_structured.json + screenshot in odg_shots/
       - /srv/docker_conf/configs/ScalaScheduler/odg-scraper/config:/data

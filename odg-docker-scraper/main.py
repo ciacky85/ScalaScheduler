@@ -3,28 +3,41 @@ import re
 import json
 import time
 import signal
+import hashlib
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
+
+from shots import maybe_capture
 
 TZ_NAME = os.environ.get("TZ", "Europe/Rome")
 TZ = ZoneInfo(TZ_NAME)
 
-CONFIG_PATH = "/data/config.json"
+CONFIG_PATHS = [
+    Path(os.environ.get("CONFIG_PATH", "/data/config.json")),
+    Path("/data/config.json"),
+    Path("/config/config.json"),
+    Path("/app/public/config.json"),
+]
+
 DEFAULT_CONFIG = {
     "urls": [
-        "https://erp.teatroallascala.org/pianificazione11/faces/DSSC/pxf_dspagine_coro.xhtml?pps=0",
-        "https://erp.teatroallascala.org/pianificazione11/faces/DSSC/pxf_dspagine_coro.xhtml?pps=1"
+        {"name": "odg_0", "url": "https://erp.teatroallascala.org/pianificazione11/faces/DSSC/pxf_dspagine_coro.xhtml?pps=0"},
+        {"name": "odg_1", "url": "https://erp.teatroallascala.org/pianificazione11/faces/DSSC/pxf_dspagine_coro.xhtml?pps=1"}
     ],
     "output_file": "/data/odg_structured.json",
+    "screenshots_dir": "/data/odg_shots",
+    "enable_screenshots": True,
     "schedules": ["07:00", "21:00"],
+    "poll_minutes": 10,
     "run_on_start": True
 }
 
 IT_MONTHS = {
-    "GENNAIO":1,"FEBBRAIO":2,"MARZO":3,"APRILE":4,"MAGGIO":5,"GIUGNO":6,
-    "LUGLIO":7,"AGOSTO":8,"SETTEMBRE":9,"OTTOBRE":10,"NOVEMBRE":11,"DICEMBRE":12
+    "GENNAIO": 1, "FEBBRAIO": 2, "MARZO": 3, "APRILE": 4, "MAGGIO": 5, "GIUGNO": 6,
+    "LUGLIO": 7, "AGOSTO": 8, "SETTEMBRE": 9, "OTTOBRE": 10, "NOVEMBRE": 11, "DICEMBRE": 12
 }
 
 DATE_HEADER_RE = re.compile(
@@ -39,18 +52,22 @@ def log(msg: str):
 
 def load_config():
     cfg = dict(DEFAULT_CONFIG)
-    try:
-        if os.path.exists(CONFIG_PATH):
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                user = json.load(f)
-            if isinstance(user, dict):
-                cfg.update(user)
-    except Exception as e:
-        log(f"WARNING: errore lettura config: {e}. Uso default.")
+    for p in CONFIG_PATHS:
+        if p.exists():
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    user = json.load(f)
+                if isinstance(user, dict):
+                    cfg.update(user)
+                    log(f"Config caricata con successo da: {p}")
+                    break
+            except Exception as e:
+                log(f"WARNING: errore lettura config ({p}): {e}")
+    
     norm = []
     for s in cfg.get("schedules", []):
         m = re.match(r"^(\d{1,2}):(\d{2})$", str(s).strip())
-        if not m: 
+        if not m:
             continue
         h, mi = int(m.group(1)), int(m.group(2))
         if 0 <= h < 24 and 0 <= mi < 60:
@@ -62,7 +79,9 @@ def parse_date_header(text: str):
     m = DATE_HEADER_RE.search(text.upper())
     if not m:
         return {"label": None, "iso": None}
-    day = int(m.group(2)); month_name = m.group(3).upper(); year = int(m.group(4))
+    day = int(m.group(2))
+    month_name = m.group(3).upper()
+    year = int(m.group(4))
     month = IT_MONTHS.get(month_name)
     iso = f"{year:04d}-{month:02d}-{day:02d}" if month else None
     return {"label": m.group(0).title(), "iso": iso}
@@ -73,8 +92,7 @@ def parse_last_update(text: str):
         return {"raw": None, "iso": None}
     raw = "Agg. " + m.group(1)
     try:
-        from datetime import datetime as _dt
-        dt = _dt.strptime(m.group(1), "%d/%m/%Y %H:%M").replace(tzinfo=TZ)
+        dt = datetime.strptime(m.group(1), "%d/%m/%Y %H:%M").replace(tzinfo=TZ)
         iso = dt.isoformat(timespec="minutes")
     except Exception:
         iso = None
@@ -82,7 +100,7 @@ def parse_last_update(text: str):
 
 def fetch_html(url: str) -> str:
     headers = {
-        "User-Agent": "Mozilla/5.0 (ODG-Scraper/2.3)",
+        "User-Agent": "Mozilla/5.0 (ODG-Scraper/3.0)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "it-IT,it;q=0.9,en;q=0.8",
     }
@@ -93,7 +111,7 @@ def fetch_html(url: str) -> str:
             return r.text
         except Exception as e:
             log(f"Fetch fallito ({i+1}/3) {url}: {e}")
-            time.sleep(2 * (i+1))
+            time.sleep(2 * (i + 1))
     raise RuntimeError(f"Impossibile scaricare {url}")
 
 def clean_footnote(fn: str) -> str:
@@ -108,13 +126,12 @@ def table_rows_from_html(html: str):
     footnotes = []
 
     for tr in soup.find_all("tr"):
-        cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th","td"])]
+        cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"])]
         cells = [c for c in cells if c]
         if not cells:
             continue
 
         row_text = " ".join(cells).strip()
-        # Riconosce righe di Note / Footnote
         if re.match(r"^(?:Note|Nota)\b", row_text, re.IGNORECASE) or (len(cells) == 1 and row_text.startswith("*")):
             note_content = re.sub(r"^(?:Note|Nota)\s*:\s*", "", row_text, flags=re.IGNORECASE).strip()
             if note_content and note_content not in footnotes:
@@ -125,7 +142,6 @@ def table_rows_from_html(html: str):
 
     full_text = soup.get_text("\n", strip=True)
 
-    # Cerca note anche nel testo completo (es. div/p/span fuori dalla tabella)
     for line in full_text.split("\n"):
         line_clean = line.strip()
         if not line_clean:
@@ -136,7 +152,6 @@ def table_rows_from_html(html: str):
             if note_content and note_content not in footnotes:
                 footnotes.append(note_content)
         elif line_clean.startswith("*") and len(line_clean) > 3:
-            # Righe che iniziano con * e non sono celle della tabella
             if not any(line_clean == c for r in rows for c in r):
                 if line_clean not in footnotes:
                     footnotes.append(line_clean)
@@ -170,11 +185,11 @@ def normalize_cap(s: str):
     return " ".join(w.capitalize() if w.isalpha() else w for w in s.split())
 
 def parse_time_range(raw: str):
-    m = TIME_RANGE_RE.search(raw.replace("–","-").replace("—","-"))
+    m = TIME_RANGE_RE.search(raw.replace("–", "-").replace("—", "-"))
     if m:
         start = f"{int(m.group(1)):02d}:{m.group(2)}"
-        end   = f"{int(m.group(3)):02d}:{m.group(4)}"
-        return {"raw": m.group(0).replace("–","-").replace("—","-"), "start": start, "end": end, "tz": TZ.key}
+        end = f"{int(m.group(3)):02d}:{m.group(4)}"
+        return {"raw": m.group(0).replace("–", "-").replace("—", "-"), "start": start, "end": end, "tz": TZ.key}
     m2 = TIME_RE.search(raw)
     if m2:
         start = f"{int(m2.group(1)):02d}:{m2.group(2)}"
@@ -182,14 +197,12 @@ def parse_time_range(raw: str):
     return {"raw": raw.strip(), "start": None, "end": None, "tz": TZ.key}
 
 def row_to_struct(row_cells, footnotes=None):
-    cells = list(row_cells) + [""]*4
+    cells = list(row_cells) + [""] * 4
     recipient = cells[0].strip()
     place_raw = cells[1].strip()
     time_raw = cells[2].strip()
     desc_raw = cells[3].strip()
 
-    # Se la riga contiene un asterisco '*' e ci sono note a piè di pagina,
-    # appende l'informazione della nota in coda alla descrizione
     if "*" in desc_raw or "*" in place_raw or "*" in recipient:
         if footnotes:
             cleaned_notes = []
@@ -242,6 +255,24 @@ def row_to_struct(row_cells, footnotes=None):
         }
     }
 
+def canonical_hash(parsed: dict) -> str:
+    rows = []
+    for r in (parsed.get("table") or {}).get("rows", []):
+        rows.append({
+            "row_index": r.get("row_index"),
+            "recipient": (r.get("recipient") or {}).get("raw"),
+            "place": (r.get("place") or {}).get("raw"),
+            "time": (r.get("time") or {}).get("raw"),
+            "desc": (r.get("description") or {}).get("raw"),
+        })
+    core = {
+        "date_label": (parsed.get("date") or {}).get("label"),
+        "date_iso": (parsed.get("date") or {}).get("iso"),
+        "last_update": (parsed.get("last_update") or {}).get("raw"),
+        "rows": rows,
+    }
+    return hashlib.sha256(json.dumps(core, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
 def extract_page(url: str):
     html = fetch_html(url)
     rows_raw, full_text, footnotes = table_rows_from_html(html)
@@ -257,13 +288,13 @@ def extract_page(url: str):
 
     table_obj = {
         "columns": [
-            {"key":"recipient","label":"Destinatario"},
-            {"key":"place","label":"Luogo"},
-            {"key":"time","label":"Fascia oraria"},
-            {"key":"description","label":"Descrizione"}
+            {"key": "recipient", "label": "Destinatario"},
+            {"key": "place", "label": "Luogo"},
+            {"key": "time", "label": "Fascia oraria"},
+            {"key": "description", "label": "Descrizione"}
         ],
         "rows": [
-            { "row_index": i, **r } for i, r in enumerate(structured_rows)
+            {"row_index": i, **r} for i, r in enumerate(structured_rows)
         ]
     }
 
@@ -272,22 +303,71 @@ def extract_page(url: str):
         "date": date_info,
         "last_update": last_upd,
         "table": table_obj,
-        "stats": { "row_count": len(structured_rows) }
+        "stats": {"row_count": len(structured_rows)}
     }
 
-def run_once(cfg):
+def resolve_url_name(raw_item: any, idx: int) -> tuple[str, str]:
+    if isinstance(raw_item, dict):
+        url = raw_item.get("url") or ""
+        name = raw_item.get("name") or ""
+    else:
+        url = str(raw_item)
+        name = ""
+
+    if not name:
+        if "pps=0" in url:
+            name = "odg_0"
+        elif "pps=1" in url:
+            name = "odg_1"
+        else:
+            name = f"page_{idx}"
+
+    return url, name
+
+def run_once(cfg: dict):
     pages = []
     raw_urls = cfg.get("urls", [])
-    for raw_item in raw_urls[:2]:
-        if isinstance(raw_item, dict):
-            url = raw_item.get("url") or raw_item.get("name") or ""
-        else:
-            url = str(raw_item)
+    
+    shots_cfg = cfg.get("screenshots", {})
+    if isinstance(shots_cfg, dict):
+        enable_shots = shots_cfg.get("enabled", cfg.get("enable_screenshots", True))
+        raw_shots_dir = shots_cfg.get("output_dir") or cfg.get("screenshots_dir") or "/data/odg_shots"
+    else:
+        enable_shots = cfg.get("enable_screenshots", True)
+        raw_shots_dir = cfg.get("screenshots_dir") or "/data/odg_shots"
+
+    raw_str = str(raw_shots_dir)
+    if raw_str.startswith("/app/public"):
+        raw_str = "/data" + raw_str[len("/app/public"):]
+    shots_dir = Path(raw_str)
+
+    log(f"Inizio scraping (enable_screenshots={enable_shots}, dir={shots_dir}, urls={len(raw_urls)})")
+
+    for idx, raw_item in enumerate(raw_urls):
+        url, name = resolve_url_name(raw_item, idx)
         if not url:
             continue
+
         try:
-            log(f"Analisi pagina: {url}")
-            pages.append(extract_page(url))
+            log(f"Analisi pagina [{name}]: {url}")
+            page_data = extract_page(url)
+            pages.append(page_data)
+
+            # Esegui la cattura dello screenshot (baseline / edit)
+            if enable_shots:
+                try:
+                    c_hash = canonical_hash(page_data)
+                    maybe_capture(
+                        url=url,
+                        url_name=name,
+                        output_dir=shots_dir,
+                        html_hash=c_hash,
+                        full_page=True,
+                        tzname=TZ_NAME,
+                    )
+                except Exception as shot_err:
+                    log(f"WARNING screenshot [{name}]: {shot_err}")
+
         except Exception as e:
             log(f"ERRORE pagina {url}: {e}")
             pages.append({
@@ -297,11 +377,14 @@ def run_once(cfg):
                 "table": {"columns": [], "rows": []},
                 "stats": {"row_count": 0}
             })
+
     payload = {
         "export_generated_at": datetime.now(TZ).isoformat(timespec="seconds"),
         "pages": pages
     }
     out = cfg.get("output_file", "/data/odg_structured.json")
+    if str(out).startswith("/app/public"):
+        out = "/data" + str(out)[len("/app/public"):]
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -333,12 +416,13 @@ def main():
     def _sig(*_a):
         nonlocal stop
         stop = True
-    signal.signal(signal.SIGINT, _sig); signal.signal(signal.SIGTERM, _sig)
+    signal.signal(signal.SIGINT, _sig)
+    signal.signal(signal.SIGTERM, _sig)
 
     while not stop:
         try:
             wait_s = seconds_until_next(datetime.now(TZ), cfg.get("schedules", []))
-            log(f"Prossima esecuzione tra ~{wait_s//3600}h {wait_s%3600//60}m")
+            log(f"Prossima esecuzione pianificata tra ~{wait_s//3600}h {wait_s%3600//60}m")
             for _ in range(wait_s):
                 if stop:
                     break

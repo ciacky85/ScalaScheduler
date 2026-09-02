@@ -23,10 +23,10 @@ export async function POST(request: Request) {
     // 1. Se configurato, salva in locale
     if (config.salvaAncheInLocale) {
       const localDir = path.join(process.cwd(), 'public', 'odg_shots');
-      await fs.mkdir(localDir, { recursive: true });
       const fullPath = path.join(localDir, fileName);
+      await fs.mkdir(path.dirname(fullPath), { recursive: true });
       await fs.writeFile(fullPath, buffer);
-      localPath = `/odg_shots/${fileName}`;
+      localPath = `/odg_shots/${fileName.replace(/\\/g, '/')}`;
     }
 
     // 2. Carica su Google Drive se la cartella è configurata
