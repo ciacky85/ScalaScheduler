@@ -1,6 +1,6 @@
 {
-  "version": "1.6.4",
-  "label": "v1.6.4",
+  "version": "1.6.5",
+  "label": "v1.6.5",
   "buildDate": "2026-09-03",
-  "changelog": "Autenticazione OAuth 2.0 con quota personale per upload screenshot e risoluzione definitiva errore Service Account quota"
+  "changelog": "Gestione credenziali OAuth da file e volume persistente, interfaccia snellita"
 }
