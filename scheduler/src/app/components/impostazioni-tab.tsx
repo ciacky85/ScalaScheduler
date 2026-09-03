@@ -285,19 +285,34 @@ export default function ImpostazioniTab() {
     setDriveStatus({ message: 'Sincronizzazione in corso...', type: 'idle' });
     try {
       const res = await fetch('/api/screenshots/sync', { method: 'POST' });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        if (res.status === 504 || text.includes('504') || text.includes('Time-out')) {
+          throw new Error('Timeout server/proxy (504): la richiesta ha impiegato troppo tempo. Riprova: i file già verificati vengono saltati.');
+        }
+        throw new Error(`Risposta server non valida (${res.status}): ${text.slice(0, 120)}`);
+      }
+
       if (!res.ok || !data.ok) {
         throw new Error(data.error || (data.result?.errors && data.result.errors.join(', ')) || 'Errore durante la sincronizzazione');
       }
+
       const uploaded = data?.result?.uploaded ?? 0;
+      const skipped = data?.result?.skipped ?? 0;
       const total = data?.result?.totalFound ?? 0;
+      const partial = data?.result?.partial ?? false;
+
+      let msg = `Sincronizzazione completata! ${uploaded} nuovi screenshot caricati su Google Drive (${skipped} già presenti, ${total} totali).`;
+      if (partial) {
+        msg = `Sincronizzazione parziale (limite tempo raggiunto): ${uploaded} caricati, ${skipped} già sincronizzati. Clicca di nuovo per completare.`;
+      }
+
       setDriveStatus({
-        message: `Sincronizzazione completata con successo! ${uploaded} su ${total} screenshot caricati su Google Drive.`,
+        message: msg,
         type: 'success',
-      });
-      toast({
-        title: 'Sincronizzazione Google Drive',
-        description: `${uploaded} screenshot caricati su Google Drive.`,
       });
     } catch (e: any) {
       setDriveStatus({

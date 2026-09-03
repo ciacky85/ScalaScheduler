@@ -419,6 +419,12 @@ def main():
     signal.signal(signal.SIGINT, _sig)
     signal.signal(signal.SIGTERM, _sig)
 
+    trigger_paths = [
+        Path("/data/trigger_run"),
+        Path("/app/public/trigger_run"),
+        Path("trigger_run"),
+    ]
+
     while not stop:
         try:
             wait_s = seconds_until_next(datetime.now(TZ), cfg.get("schedules", []))
@@ -426,10 +432,25 @@ def main():
             for _ in range(wait_s):
                 if stop:
                     break
+                triggered = False
+                for tp in trigger_paths:
+                    if tp.exists():
+                        try:
+                            tp.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        log("Trigger manuale rilevato da webapp! Avvio immediato scraping e screenshot...")
+                        cfg = load_config()
+                        run_once(cfg)
+                        triggered = True
+                        break
+                if triggered:
+                    break
                 time.sleep(1)
             if stop:
                 break
-            run_once(cfg)
+            if not triggered:
+                run_once(cfg)
         except Exception as e:
             log(f"Errore loop: {e}")
             time.sleep(10)

@@ -4,7 +4,13 @@ import re
 import requests
 from pathlib import Path
 
-CONFIG_PATH = os.environ.get("DRIVE_CONFIG_PATH", "/data/drive_config.json")
+CONFIG_PATHS = [
+    Path(os.environ.get("DRIVE_CONFIG_PATH", "/data/drive_config.json")),
+    Path("/data/drive_config.json"),
+    Path("/app/public/drive_config.json"),
+    Path("/config/drive_config.json"),
+    Path("drive_config.json"),
+]
 DEFAULT_SCHEDULER_URL = os.environ.get("SCHEDULER_API_URL", "http://scala-scheduler:3000")
 
 def extract_drive_folder_id(url_or_id: str) -> str:
@@ -25,15 +31,17 @@ def load_drive_config():
         "googleDriveFolderId": "",
         "salvaAncheInLocale": True
     }
-    if os.path.exists(CONFIG_PATH):
-        try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                defaults.update(data)
-                if not defaults.get("googleDriveFolderId") and defaults.get("googleDriveFolderUrl"):
-                    defaults["googleDriveFolderId"] = extract_drive_folder_id(defaults["googleDriveFolderUrl"])
-        except Exception as e:
-            print(f"[DriveUploader] Errore lettura config: {e}")
+    for p in CONFIG_PATHS:
+        if p.exists():
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    defaults.update(data)
+                    if not defaults.get("googleDriveFolderId") and defaults.get("googleDriveFolderUrl"):
+                        defaults["googleDriveFolderId"] = extract_drive_folder_id(defaults["googleDriveFolderUrl"])
+                    break
+            except Exception as e:
+                print(f"[DriveUploader] Errore lettura config ({p}): {e}")
     return defaults
 
 def handle_screenshot(

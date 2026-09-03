@@ -15,6 +15,7 @@ import GestioneUtentiTab from '@/app/components/admin/gestione-utenti-tab';
 import { TabErrorBoundary } from '@/app/components/error-boundary';
 import { useAuth } from '@/contexts/auth-context';
 import { CalendarDays, Bot, Users, LogOut, User as UserIcon, Shield, Lock, UserPlus, LogIn, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import { APP_VERSION_LABEL } from '@/version';
 import type { RigaCalendario } from '@/lib/types';
 
 export default function Home() {
@@ -128,7 +129,12 @@ export default function Home() {
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground mx-auto shadow-lg shadow-primary/20">
               <CalendarDays className="h-6 w-6" />
             </div>
-            <h1 className="text-2xl font-headline font-bold tracking-tight">ScalaScheduler</h1>
+            <div className="flex items-center justify-center gap-2">
+              <h1 className="text-2xl font-headline font-bold tracking-tight">ScalaScheduler</h1>
+              <Badge variant="outline" className="font-mono text-xs px-2 py-0.5 border-primary/30 text-primary bg-primary/5">
+                {APP_VERSION_LABEL}
+              </Badge>
+            </div>
             <p className="text-sm text-muted-foreground">
               Teatro alla Scala — Chorus Calendar Sync
             </p>
@@ -313,7 +319,12 @@ export default function Home() {
             <CalendarDays className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-lg sm:text-xl font-headline font-semibold tracking-tight">ScalaScheduler</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg sm:text-xl font-headline font-semibold tracking-tight">ScalaScheduler</h1>
+              <Badge variant="outline" className="font-mono text-[10px] px-1.5 py-0 h-4 border-primary/30 text-primary bg-primary/5">
+                {APP_VERSION_LABEL}
+              </Badge>
+            </div>
             <p className="text-[11px] text-muted-foreground hidden sm:block">Teatro alla Scala — Chorus Calendar Sync</p>
           </div>
         </div>

@@ -155,6 +155,19 @@ export async function saveDriveConfig(config: Partial<DriveConfig>): Promise<Dri
     }
   } catch (_) {}
 
+  const extraPaths = [
+    '/data/drive_config.json',
+    '/app/public/drive_config.json',
+    path.join(process.cwd(), 'public', 'drive_config.json'),
+  ];
+  for (const ep of extraPaths) {
+    try {
+      if (existsSync(path.dirname(ep))) {
+        await fs.writeFile(ep, JSON.stringify(updated, null, 2), 'utf-8');
+      }
+    } catch (_) {}
+  }
+
   return updated;
 }
 
@@ -171,10 +184,9 @@ export async function verifyDriveFolderAccess(folderId: string): Promise<{ ok: b
       fileId: folderId,
       fields: 'id, name, mimeType, capabilities',
       supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
     });
 
-    const file = response.data;
+    const file: any = response.data;
     if (file.mimeType !== 'application/vnd.google-apps.folder') {
       return { ok: false, error: `L'elemento indicato ("${file.name}") non è una cartella.` };
     }
@@ -282,16 +294,23 @@ export async function uploadScreenshotToDrive(
 
 /**
  * Sincronizza tutti gli screenshot locali presenti in public/odg_shots (o /data/odg_shots) su Google Drive.
+ * Ottimizzato per:
+ * 1. Cache immediata di tutte le cartelle su Google Drive in una sola query.
+ * 2. Ordinamento decrescente (Newest First): date correnti e recenti sincronizzate per prime.
+ * 3. Skip immediato dei file già caricati su Drive (verifica in memoria).
+ * 4. Time-budget safety guard (25s) per prevenire categoricamente timeout 504 del reverse proxy.
  */
 export async function syncLocalShotsToDrive(): Promise<{
   ok: boolean;
   totalFound: number;
   uploaded: number;
+  skipped: number;
+  partial: boolean;
   errors: string[];
 }> {
   const config = getDriveConfig();
   if (!config.googleDriveFolderId) {
-    return { ok: false, totalFound: 0, uploaded: 0, errors: ['Nessuna cartella Google Drive configurata.'] };
+    return { ok: false, totalFound: 0, uploaded: 0, skipped: 0, partial: false, errors: ['Nessuna cartella Google Drive configurata.'] };
   }
 
   const candidateShotDirs = [
@@ -310,62 +329,246 @@ export async function syncLocalShotsToDrive(): Promise<{
   }
 
   if (!shotsDir) {
-    return { ok: true, totalFound: 0, uploaded: 0, errors: ['Nessuna cartella odg_shots trovata localmente.'] };
+    return { ok: true, totalFound: 0, uploaded: 0, skipped: 0, partial: false, errors: ['Nessuna cartella odg_shots trovata localmente.'] };
+  }
+
+  const auth = createDriveAuth();
+  const drive = google.drive({ version: 'v3', auth });
+
+  // 1. Precarica in memoria tutte le cartelle Drive già esistenti per evitare decine di chiamate ripetute
+  const folderMap = new Map<string, string>(); // subfolderName -> subfolderId
+  try {
+    let pageToken: string | undefined = undefined;
+    do {
+      const listRes: any = await drive.files.list({
+        q: `'${config.googleDriveFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        fields: 'nextPageToken, files(id, name)',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+        pageToken,
+      });
+      if (listRes.data && listRes.data.files) {
+        for (const f of listRes.data.files) {
+          if (f.name && f.id) folderMap.set(f.name, f.id);
+        }
+      }
+      pageToken = listRes.data?.nextPageToken || undefined;
+    } while (pageToken);
+  } catch (e: any) {
+    console.warn('[GoogleDrive] Errore pre-fetching cartelle Drive:', e.message);
+  }
+
+  async function getOrCreateDriveSubfolder(subName: string): Promise<string> {
+    if (folderMap.has(subName)) {
+      return folderMap.get(subName)!;
+    }
+    const createFolderRes: any = await drive.files.create({
+      requestBody: {
+        name: subName,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [config.googleDriveFolderId],
+      },
+      fields: 'id, name',
+      supportsAllDrives: true,
+    });
+    const newId = createFolderRes.data?.id || config.googleDriveFolderId;
+    folderMap.set(subName, newId);
+    return newId;
+  }
+
+  // Cache dei file già presenti in ciascuna cartella Google Drive per non ri-caricarli
+  const folderFilesCache = new Map<string, Set<string>>(); // targetFolderId -> Set di nomi file già su Drive
+
+  async function getFilesAlreadyInDriveFolder(targetFolderId: string): Promise<Set<string>> {
+    if (folderFilesCache.has(targetFolderId)) {
+      return folderFilesCache.get(targetFolderId)!;
+    }
+    const set = new Set<string>();
+    try {
+      let pageToken: string | undefined = undefined;
+      do {
+        const listFilesRes: any = await drive.files.list({
+          q: `'${targetFolderId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
+          fields: 'nextPageToken, files(id, name)',
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+          pageToken,
+        });
+        if (listFilesRes.data && listFilesRes.data.files) {
+          for (const f of listFilesRes.data.files) {
+            if (f.name) set.add(f.name);
+          }
+        }
+        pageToken = listFilesRes.data?.nextPageToken || undefined;
+      } while (pageToken);
+    } catch (err: any) {
+      console.warn(`[GoogleDrive] Errore cache file per cartella ${targetFolderId}:`, err.message);
+    }
+    folderFilesCache.set(targetFolderId, set);
+    return set;
   }
 
   const errors: string[] = [];
   let uploadedCount = 0;
+  let skippedCount = 0;
   let totalFound = 0;
+  let partial = false;
+
+  const startTime = Date.now();
+  const MAX_SYNC_DURATION_MS = 24000; // Limite di sicurezza: 24 secondi max per evitare 504 reverse proxy
 
   try {
-    const entries = await fs.readdir(shotsDir, { withFileTypes: true });
+    const rawEntries = await fs.readdir(shotsDir, { withFileTypes: true });
 
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        const subDirPath = path.join(shotsDir, entry.name);
-        const files = await fs.readdir(subDirPath);
-        for (const file of files) {
-          if (file.toLowerCase().endsWith('.png')) {
-            totalFound++;
-            const relativeName = `${entry.name}/${file}`;
-            const fullFilePath = path.join(subDirPath, file);
-            try {
-              const buffer = await fs.readFile(fullFilePath);
-              const res = await uploadScreenshotToDrive(buffer, relativeName, 'image/png', config.googleDriveFolderId);
-              if (res.ok) {
-                uploadedCount++;
-              } else {
-                errors.push(`${relativeName}: ${res.error || 'Errore upload'}`);
-              }
-            } catch (err: any) {
-              errors.push(`${relativeName}: ${err.message}`);
-            }
-          }
+    // Ordina le directory in modo DECRESCENTE (Newest First): oggi e ieri per primi!
+    const dirEntries = rawEntries
+      .filter((e) => e.isDirectory())
+      .sort((a, b) => b.name.localeCompare(a.name));
+
+    const rootFiles = rawEntries
+      .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.png'))
+      .sort((a, b) => b.name.localeCompare(a.name));
+
+    const { Readable } = await import('stream');
+
+    // 1. Processa le sottocartelle data (es. 2026-09-03, 2026-09-02...)
+    for (const dirEntry of dirEntries) {
+      if (Date.now() - startTime > MAX_SYNC_DURATION_MS) {
+        partial = true;
+        break;
+      }
+
+      const subDirPath = path.join(shotsDir, dirEntry.name);
+      let filesInSub: string[] = [];
+      try {
+        filesInSub = await fs.readdir(subDirPath);
+      } catch (_) {
+        continue;
+      }
+
+      const pngFiles = filesInSub
+        .filter((f) => f.toLowerCase().endsWith('.png'))
+        .sort((a, b) => b.localeCompare(a));
+
+      if (pngFiles.length === 0) continue;
+
+      totalFound += pngFiles.length;
+
+      // Ottieni o crea la cartella su Drive
+      let targetFolderId = config.googleDriveFolderId;
+      try {
+        targetFolderId = await getOrCreateDriveSubfolder(dirEntry.name);
+      } catch (fErr: any) {
+        errors.push(`Cartella ${dirEntry.name}: ${fErr.message}`);
+        continue;
+      }
+
+      // Ottieni l'elenco dei file già caricati in questa cartella
+      const existingInDrive = await getFilesAlreadyInDriveFolder(targetFolderId);
+
+      for (const file of pngFiles) {
+        if (Date.now() - startTime > MAX_SYNC_DURATION_MS) {
+          partial = true;
+          break;
         }
-      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.png')) {
-        totalFound++;
-        const fullFilePath = path.join(shotsDir, entry.name);
+
+        // Il nome salvato su Drive è la parte del nome (es. 2026-09-03_odg_0.png)
+        const finalDriveName = file;
+
+        if (existingInDrive.has(finalDriveName)) {
+          skippedCount++;
+          continue; // File già presente su Drive: salta all'istante senza fare upload!
+        }
+
+        const fullFilePath = path.join(subDirPath, file);
         try {
           const buffer = await fs.readFile(fullFilePath);
-          const res = await uploadScreenshotToDrive(buffer, entry.name, 'image/png', config.googleDriveFolderId);
-          if (res.ok) {
+          const stream = new Readable();
+          stream.push(buffer);
+          stream.push(null);
+
+          const upRes = await drive.files.create({
+            requestBody: {
+              name: finalDriveName,
+              parents: [targetFolderId],
+            },
+            media: {
+              mimeType: 'image/png',
+              body: stream,
+            },
+            fields: 'id, name',
+            supportsAllDrives: true,
+          });
+
+          if (upRes.data.id) {
             uploadedCount++;
+            existingInDrive.add(finalDriveName);
           } else {
-            errors.push(`${entry.name}: ${res.error || 'Errore upload'}`);
+            errors.push(`${dirEntry.name}/${file}: Mancato ID file Drive`);
           }
-        } catch (err: any) {
-          errors.push(`${entry.name}: ${err.message}`);
+        } catch (upErr: any) {
+          const msg = upErr?.response?.data?.error?.message || upErr.message;
+          errors.push(`${dirEntry.name}/${file}: ${msg}`);
+        }
+      }
+    }
+
+    // 2. Eventuali file PNG nella root di odg_shots
+    if (!partial && rootFiles.length > 0) {
+      totalFound += rootFiles.length;
+      const rootExisting = await getFilesAlreadyInDriveFolder(config.googleDriveFolderId);
+
+      for (const rf of rootFiles) {
+        if (Date.now() - startTime > MAX_SYNC_DURATION_MS) {
+          partial = true;
+          break;
+        }
+
+        if (rootExisting.has(rf.name)) {
+          skippedCount++;
+          continue;
+        }
+
+        const fullPath = path.join(shotsDir, rf.name);
+        try {
+          const buffer = await fs.readFile(fullPath);
+          const stream = new Readable();
+          stream.push(buffer);
+          stream.push(null);
+
+          const upRes = await drive.files.create({
+            requestBody: {
+              name: rf.name,
+              parents: [config.googleDriveFolderId],
+            },
+            media: {
+              mimeType: 'image/png',
+              body: stream,
+            },
+            fields: 'id, name',
+            supportsAllDrives: true,
+          });
+
+          if (upRes.data.id) {
+            uploadedCount++;
+            rootExisting.add(rf.name);
+          }
+        } catch (upErr: any) {
+          const msg = upErr?.response?.data?.error?.message || upErr.message;
+          errors.push(`${rf.name}: ${msg}`);
         }
       }
     }
   } catch (err: any) {
-    return { ok: false, totalFound, uploaded: uploadedCount, errors: [err.message] };
+    return { ok: false, totalFound, uploaded: uploadedCount, skipped: skippedCount, partial, errors: [err.message] };
   }
 
   return {
     ok: errors.length === 0,
     totalFound,
     uploaded: uploadedCount,
+    skipped: skippedCount,
+    partial,
     errors,
   };
 }

@@ -117,13 +117,26 @@ export default function ScraperManagerTab() {
     setFeedback(null);
     try {
       const res = await fetch('/api/scraper/run', { method: 'POST' });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        if (res.status === 504 || text.includes('504') || text.includes('Time-out')) {
+          throw new Error('Timeout server/proxy (504): l\'operazione ha impiegato troppo tempo.');
+        }
+        throw new Error(`Risposta server non valida (${res.status}): ${text.slice(0, 120)}`);
+      }
+
       if (!res.ok || !data.ok) throw new Error(data.error || 'Errore esecuzione');
 
       const pages = data?.result?.pagesScraped ?? 0;
       const rows = data?.result?.totalRows ?? 0;
       const uploaded = data?.driveSync?.uploaded ?? 0;
-      const syncNote = uploaded > 0 ? ` Caricati su Google Drive: ${uploaded} screenshot.` : '';
+      const skipped = data?.driveSync?.skipped ?? 0;
+      const syncNote = uploaded > 0 
+        ? ` Caricati su Google Drive: ${uploaded} screenshot (${skipped} già presenti).`
+        : (skipped > 0 ? ` Google Drive: tutti i ${skipped} screenshot erano già sincronizzati.` : '');
       setFeedback({
         type: 'success',
         message: `Scraping completato con successo! Pagine analizzate: ${pages}, Righe estratte: ${rows}.${syncNote}`,
@@ -141,15 +154,34 @@ export default function ScraperManagerTab() {
     setFeedback(null);
     try {
       const res = await fetch('/api/screenshots/sync', { method: 'POST' });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        if (res.status === 504 || text.includes('504') || text.includes('Time-out')) {
+          throw new Error('Timeout server/proxy (504). La sincronizzazione è stata ottimizzata: riprova per proseguire con i file rimanenti.');
+        }
+        throw new Error(`Risposta server non valida (${res.status}): ${text.slice(0, 120)}`);
+      }
+
       if (!res.ok || !data.ok) {
         throw new Error(data.error || (data.result?.errors && data.result.errors.join(', ')) || 'Errore sincronizzazione');
       }
+
       const uploaded = data?.result?.uploaded ?? 0;
+      const skipped = data?.result?.skipped ?? 0;
       const total = data?.result?.totalFound ?? 0;
+      const partial = data?.result?.partial ?? false;
+
+      let msg = `Sincronizzazione completata! ${uploaded} nuovi screenshot caricati su Google Drive (${skipped} già presenti, ${total} totali verificati).`;
+      if (partial) {
+        msg = `Sincronizzazione parziale (limite tempo raggiunto per prevenire timeout): ${uploaded} caricati, ${skipped} già sincronizzati. Clicca di nuovo per proseguire con le date rimanenti.`;
+      }
+
       setFeedback({
         type: 'success',
-        message: `Sincronizzazione completata! ${uploaded} su ${total} screenshot caricati con successo su Google Drive.`,
+        message: msg,
       });
     } catch (e: any) {
       setFeedback({ type: 'error', message: e?.message || 'Errore durante la sincronizzazione su Google Drive' });
@@ -367,7 +399,7 @@ export default function ScraperManagerTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {urlsList.map((rawUrl, i) => {
+                {urlsList.map((rawUrl: any, i) => {
                   const urlStr = typeof rawUrl === 'string' ? rawUrl : (rawUrl?.url || rawUrl?.name || JSON.stringify(rawUrl));
                   return (
                     <TableRow key={i}>
