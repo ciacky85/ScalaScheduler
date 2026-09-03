@@ -6,12 +6,13 @@ from pathlib import Path
 
 CONFIG_PATHS = [
     Path(os.environ.get("DRIVE_CONFIG_PATH", "/data/drive_config.json")),
+    Path("/app/config/drive_config.json"),
     Path("/data/drive_config.json"),
     Path("/app/public/drive_config.json"),
     Path("/config/drive_config.json"),
     Path("drive_config.json"),
 ]
-DEFAULT_SCHEDULER_URL = os.environ.get("SCHEDULER_API_URL", "http://scala-scheduler:3000")
+DEFAULT_SCHEDULER_URL = os.environ.get("SCHEDULER_API_URL", "http://localhost:3000")
 
 def extract_drive_folder_id(url_or_id: str) -> str:
     if not url_or_id:

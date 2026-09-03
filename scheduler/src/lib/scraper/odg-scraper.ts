@@ -16,8 +16,9 @@ const DEFAULT_CONFIG: ScraperConfig = {
 
 function getCandidateConfigPaths(): string[] {
   return [
-    path.join(process.cwd(), 'public', 'config.json'),
     '/data/config.json',
+    '/app/config/config.json',
+    path.join(process.cwd(), 'public', 'config.json'),
     path.join(process.cwd(), 'src', 'app', 'config', 'scraper_config.json'),
     path.join(process.cwd(), 'config', 'config.json'),
   ];
@@ -25,8 +26,8 @@ function getCandidateConfigPaths(): string[] {
 
 function getCandidateDataPaths(): string[] {
   return [
-    path.join(process.cwd(), 'public', 'odg_structured.json'),
     '/data/odg_structured.json',
+    path.join(process.cwd(), 'public', 'odg_structured.json'),
     path.join(process.cwd(), 'odg_structured.json'),
   ];
 }

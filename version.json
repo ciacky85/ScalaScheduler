@@ -1,6 +1,6 @@
 {
-  "version": "1.6.5",
-  "label": "v1.6.5",
+  "version": "2.0.0",
+  "label": "v2.0.0",
   "buildDate": "2026-09-03",
-  "changelog": "Gestione credenziali OAuth da file e volume persistente, interfaccia snellita"
+  "changelog": "Major release: Architettura unificata in singolo container (Next.js + ODG Scraper Python Playwright)"
 }

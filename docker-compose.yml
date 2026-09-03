@@ -2,11 +2,11 @@ version: '3.8'
 
 services:
   # ============================================================
-  # 1. SCALA SCHEDULER (Next.js WebApp + API + Cron Runner)
+  # SCALA SCHEDULER (Next.js WebApp + ODG Scraper Python Unificato)
   # ============================================================
   scala-scheduler:
     build:
-      context: ./scheduler
+      context: .
       dockerfile: Dockerfile
     container_name: ScalaScheduler
     restart: unless-stopped
@@ -15,30 +15,9 @@ services:
     environment:
       - TZ=Europe/Rome
       - NODE_ENV=production
-      - GOOGLE_DRIVE_OAUTH_CLIENT_ID=${GOOGLE_DRIVE_OAUTH_CLIENT_ID:-}
-      - GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=${GOOGLE_DRIVE_OAUTH_CLIENT_SECRET:-}
-      - GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN=${GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN:-}
+      - SCHEDULER_API_URL=http://localhost:3000
     volumes:
-      # Configurazioni WebApp (calendari, drive_config, service-account-key, users.json)
+      # Configurazioni WebApp (calendari.json, drive_config.json, service-account-key.json, users.json)
       - /srv/docker_conf/configs/ScalaScheduler/config:/app/config
-      - /srv/docker_conf/configs/ScalaScheduler/config:/app/src/app/config
-      # Volume dati condiviso con lo scraper (odg_structured.json, config.json, screenshot)
-      - /srv/docker_conf/configs/ScalaScheduler/odg-scraper/config:/app/public
-    depends_on:
-      - odg-scraper
-
-  # ============================================================
-  # 2. ODG SCRAPER (Scraping periodico ERP Teatro alla Scala)
-  # ============================================================
-  odg-scraper:
-    build:
-      context: ./odg-docker-scraper
-      dockerfile: Dockerfile
-    container_name: odg-scraper
-    restart: unless-stopped
-    environment:
-      - TZ=Europe/Rome
-      - SCHEDULER_API_URL=http://scala-scheduler:3000
-    volumes:
-      # Volume dati: legge config.json e scrive odg_structured.json + screenshot in odg_shots/
+      # Dati scraper (odg_structured.json, config.json, e cartella screenshot odg_shots/)
       - /srv/docker_conf/configs/ScalaScheduler/odg-scraper/config:/data

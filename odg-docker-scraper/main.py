@@ -18,6 +18,7 @@ TZ = ZoneInfo(TZ_NAME)
 CONFIG_PATHS = [
     Path(os.environ.get("CONFIG_PATH", "/data/config.json")),
     Path("/data/config.json"),
+    Path("/app/config/config.json"),
     Path("/config/config.json"),
     Path("/app/public/config.json"),
 ]
