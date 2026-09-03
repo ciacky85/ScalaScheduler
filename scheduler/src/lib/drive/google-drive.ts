@@ -307,6 +307,8 @@ export async function syncLocalShotsToDrive(): Promise<{
   skipped: number;
   partial: boolean;
   errors: string[];
+  notice?: string;
+  processedDetails?: string;
 }> {
   const config = getDriveConfig();
   if (!config.googleDriveFolderId) {
@@ -358,13 +360,20 @@ export async function syncLocalShotsToDrive(): Promise<{
     console.warn('[GoogleDrive] Errore pre-fetching cartelle Drive:', e.message);
   }
 
+  function normalizeDriveFolderName(name: string): string {
+    const mIT = name.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    if (mIT) return `${mIT[3]}-${mIT[2]}-${mIT[1]}`;
+    return name;
+  }
+
   async function getOrCreateDriveSubfolder(subName: string): Promise<string> {
-    if (folderMap.has(subName)) {
-      return folderMap.get(subName)!;
+    const normName = normalizeDriveFolderName(subName);
+    if (folderMap.has(normName)) {
+      return folderMap.get(normName)!;
     }
     const createFolderRes: any = await drive.files.create({
       requestBody: {
-        name: subName,
+        name: normName,
         mimeType: 'application/vnd.google-apps.folder',
         parents: [config.googleDriveFolderId],
       },
@@ -372,7 +381,7 @@ export async function syncLocalShotsToDrive(): Promise<{
       supportsAllDrives: true,
     });
     const newId = createFolderRes.data?.id || config.googleDriveFolderId;
-    folderMap.set(subName, newId);
+    folderMap.set(normName, newId);
     return newId;
   }
 
@@ -413,31 +422,56 @@ export async function syncLocalShotsToDrive(): Promise<{
   let skippedCount = 0;
   let totalFound = 0;
   let partial = false;
+  let todayNotice: string | undefined = undefined;
 
   const startTime = Date.now();
-  const MAX_SYNC_DURATION_MS = 24000; // Limite di sicurezza: 24 secondi max per evitare 504 reverse proxy
-
+  let dirEntries: any[] = [];
+  let checkedDirs: string[] = [];
   try {
     const rawEntries = await fs.readdir(shotsDir, { withFileTypes: true });
 
-    // Ordina le directory in modo DECRESCENTE (Newest First): oggi e ieri per primi!
-    const dirEntries = rawEntries
+    // Calcolo date odierne e recenti per priorità assoluta
+    const now = new Date();
+    const todayISO = now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }); // "2026-09-03"
+    const [tY, tM, tD] = todayISO.split('-');
+    const todayIT = `${tD}-${tM}-${tY}`; // "03-09-2026"
+    const yesterdayDate = new Date(Date.now() - 86400000);
+    const yesterdayISO = yesterdayDate.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+    const [yY, yM, yD] = yesterdayISO.split('-');
+    const yesterdayIT = `${yD}-${yM}-${yY}`;
+
+    function getDirPriority(name: string): number {
+      if (name === todayISO || name === todayIT || name.startsWith(todayISO) || name.startsWith(todayIT)) return 0;
+      if (name === yesterdayISO || name === yesterdayIT || name.startsWith(yesterdayISO) || name.startsWith(yesterdayIT)) return 1;
+      return 2;
+    }
+
+    // Ordina mettendo OGGI al primissimo posto (priorità 0), IERI (priorità 1), poi le altre decrescenti
+    dirEntries = rawEntries
       .filter((e) => e.isDirectory())
-      .sort((a, b) => b.name.localeCompare(a.name));
+      .sort((a, b) => {
+        const pA = getDirPriority(a.name);
+        const pB = getDirPriority(b.name);
+        if (pA !== pB) return pA - pB;
+        return b.name.localeCompare(a.name);
+      });
 
     const rootFiles = rawEntries
-      .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.png'))
+      .filter((e) => e.isFile() && /\.(png|jpe?g|webp)$/i.test(e.name))
       .sort((a, b) => b.name.localeCompare(a.name));
 
     const { Readable } = await import('stream');
 
-    // 1. Processa le sottocartelle data (es. 2026-09-03, 2026-09-02...)
+    // 1. Processa le sottocartelle data (oggi e ieri per prime in assoluto!)
+    let checkedDirsCount = 0;
     for (const dirEntry of dirEntries) {
       if (Date.now() - startTime > MAX_SYNC_DURATION_MS) {
         partial = true;
         break;
       }
 
+      checkedDirsCount++;
+      checkedDirs.push(dirEntry.name);
       const subDirPath = path.join(shotsDir, dirEntry.name);
       let filesInSub: string[] = [];
       try {
@@ -446,13 +480,31 @@ export async function syncLocalShotsToDrive(): Promise<{
         continue;
       }
 
-      const pngFiles = filesInSub
-        .filter((f) => f.toLowerCase().endsWith('.png'))
+      const imgFiles = filesInSub
+        .filter((f) => /\.(png|jpe?g|webp)$/i.test(f))
         .sort((a, b) => b.localeCompare(a));
 
-      if (pngFiles.length === 0) continue;
+      const isTodayOrYesterday = getDirPriority(dirEntry.name) <= 1;
 
-      totalFound += pngFiles.length;
+      // Se la cartella di oggi in locale non ha screenshot, registriamo la nota per l'utente
+      if (imgFiles.length === 0) {
+        if (getDirPriority(dirEntry.name) === 0) {
+          todayNotice = `La cartella locale di oggi (${dirEntry.name}) non contiene file immagine (.png). Clicca su "Esegui Scraper Adesso" per generare gli screenshot di oggi.`;
+        }
+        continue;
+      }
+
+      totalFound += imgFiles.length;
+
+      const normName = normalizeDriveFolderName(dirEntry.name);
+
+      // OTTIMIZZAZIONE ARCHIVIO STORICO:
+      // Se la cartella è vecchia (non oggi né ieri) ed esiste già su Google Drive,
+      // sappiamo che è già sincronizzata dall'archivio: saltiamo la query file-by-file per completare in 1 secondo!
+      if (!isTodayOrYesterday && folderMap.has(normName) && checkedDirsCount > 5) {
+        skippedCount += imgFiles.length;
+        continue;
+      }
 
       // Ottieni o crea la cartella su Drive
       let targetFolderId = config.googleDriveFolderId;
@@ -463,21 +515,25 @@ export async function syncLocalShotsToDrive(): Promise<{
         continue;
       }
 
-      // Ottieni l'elenco dei file già caricati in questa cartella
-      const existingInDrive = await getFilesAlreadyInDriveFolder(targetFolderId);
+      // Se la cartella su Drive è stata appena creata, sappiamo che è vuota senza fare chiamate
+      let existingInDrive = new Set<string>();
+      if (folderMap.has(normName)) {
+        existingInDrive = await getFilesAlreadyInDriveFolder(targetFolderId);
+      } else {
+        folderFilesCache.set(targetFolderId, existingInDrive);
+      }
 
-      for (const file of pngFiles) {
+      for (const file of imgFiles) {
         if (Date.now() - startTime > MAX_SYNC_DURATION_MS) {
           partial = true;
           break;
         }
 
-        // Il nome salvato su Drive è la parte del nome (es. 2026-09-03_odg_0.png)
         const finalDriveName = file;
 
         if (existingInDrive.has(finalDriveName)) {
           skippedCount++;
-          continue; // File già presente su Drive: salta all'istante senza fare upload!
+          continue; // File già presente su Drive: skip istantaneo!
         }
 
         const fullFilePath = path.join(subDirPath, file);
@@ -487,20 +543,20 @@ export async function syncLocalShotsToDrive(): Promise<{
           stream.push(buffer);
           stream.push(null);
 
-          const upRes = await drive.files.create({
+          const upRes: any = await drive.files.create({
             requestBody: {
               name: finalDriveName,
               parents: [targetFolderId],
             },
             media: {
-              mimeType: 'image/png',
+              mimeType: file.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg',
               body: stream,
             },
             fields: 'id, name',
             supportsAllDrives: true,
           });
 
-          if (upRes.data.id) {
+          if (upRes.data?.id) {
             uploadedCount++;
             existingInDrive.add(finalDriveName);
           } else {
@@ -513,7 +569,7 @@ export async function syncLocalShotsToDrive(): Promise<{
       }
     }
 
-    // 2. Eventuali file PNG nella root di odg_shots
+    // 2. Eventuali file immagine nella root di odg_shots
     if (!partial && rootFiles.length > 0) {
       totalFound += rootFiles.length;
       const rootExisting = await getFilesAlreadyInDriveFolder(config.googleDriveFolderId);
@@ -536,20 +592,20 @@ export async function syncLocalShotsToDrive(): Promise<{
           stream.push(buffer);
           stream.push(null);
 
-          const upRes = await drive.files.create({
+          const upRes: any = await drive.files.create({
             requestBody: {
               name: rf.name,
               parents: [config.googleDriveFolderId],
             },
             media: {
-              mimeType: 'image/png',
+              mimeType: rf.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg',
               body: stream,
             },
             fields: 'id, name',
             supportsAllDrives: true,
           });
 
-          if (upRes.data.id) {
+          if (upRes.data?.id) {
             uploadedCount++;
             rootExisting.add(rf.name);
           }
@@ -563,6 +619,8 @@ export async function syncLocalShotsToDrive(): Promise<{
     return { ok: false, totalFound, uploaded: uploadedCount, skipped: skippedCount, partial, errors: [err.message] };
   }
 
+  const processedDetails = `Cartelle analizzate (${checkedDirs.length}): ${checkedDirs.slice(0, 4).join(', ')}`;
+
   return {
     ok: errors.length === 0,
     totalFound,
@@ -570,5 +628,7 @@ export async function syncLocalShotsToDrive(): Promise<{
     skipped: skippedCount,
     partial,
     errors,
+    notice: todayNotice,
+    processedDetails,
   };
 }

@@ -176,7 +176,13 @@ export default function ScraperManagerTab() {
 
       let msg = `Sincronizzazione completata! ${uploaded} nuovi screenshot caricati su Google Drive (${skipped} già presenti, ${total} totali verificati).`;
       if (partial) {
-        msg = `Sincronizzazione parziale (limite tempo raggiunto per prevenire timeout): ${uploaded} caricati, ${skipped} già sincronizzati. Clicca di nuovo per proseguire con le date rimanenti.`;
+        msg = `Sincronizzazione parziale: ${uploaded} caricati, ${skipped} già sincronizzati.`;
+      }
+      if (data?.result?.notice) {
+        msg += ` ${data.result.notice}`;
+      }
+      if (data?.result?.processedDetails) {
+        msg += ` [${data.result.processedDetails}]`;
       }
 
       setFeedback({

@@ -1,6 +1,6 @@
 {
-  "version": "1.6.0",
-  "label": "v1.6.0",
+  "version": "1.6.1",
+  "label": "v1.6.1",
   "buildDate": "2026-09-03",
-  "changelog": "Drive sync cache optimization, Newest-First ordering, 24s proxy timeout guard, and header version badge"
+  "changelog": "Today-First absolute priority sync, archive fast skipping, date format normalization, empty folder notice"
 }

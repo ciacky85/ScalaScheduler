@@ -307,7 +307,13 @@ export default function ImpostazioniTab() {
 
       let msg = `Sincronizzazione completata! ${uploaded} nuovi screenshot caricati su Google Drive (${skipped} già presenti, ${total} totali).`;
       if (partial) {
-        msg = `Sincronizzazione parziale (limite tempo raggiunto): ${uploaded} caricati, ${skipped} già sincronizzati. Clicca di nuovo per completare.`;
+        msg = `Sincronizzazione parziale: ${uploaded} caricati, ${skipped} già sincronizzati.`;
+      }
+      if (data?.result?.notice) {
+        msg += ` ${data.result.notice}`;
+      }
+      if (data?.result?.processedDetails) {
+        msg += ` [${data.result.processedDetails}]`;
       }
 
       setDriveStatus({
