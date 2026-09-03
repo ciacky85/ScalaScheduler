@@ -275,6 +275,10 @@ export default function ImpostazioniTab() {
   const [salvaLocale, setSalvaLocale] = useState<boolean>(true);
   const [isTestingDrive, setIsTestingDrive] = useState<boolean>(false);
   const [isSyncingShots, setIsSyncingShots] = useState<boolean>(false);
+  const [oauthClientId, setOauthClientId] = useState<string>('');
+  const [oauthClientSecret, setOauthClientSecret] = useState<string>('');
+  const [oauthRefreshToken, setOauthRefreshToken] = useState<string>('');
+  const [showOauth, setShowOauth] = useState<boolean>(false);
   const [driveStatus, setDriveStatus] = useState<{ type: 'idle' | 'success' | 'error'; message: string }>({
     type: 'idle',
     message: '',
@@ -338,6 +342,9 @@ export default function ImpostazioniTab() {
         if (data.ok && data.config) {
           setDriveUrl(data.config.googleDriveFolderUrl || settings.googleDriveFolderUrl || '');
           setSalvaLocale(data.config.salvaAncheInLocale !== undefined ? data.config.salvaAncheInLocale : (settings.salvaAncheInLocale ?? true));
+          setOauthClientId(data.config.oauthClientId || '');
+          setOauthClientSecret(data.config.oauthClientSecret || '');
+          setOauthRefreshToken(data.config.oauthRefreshToken || '');
         }
       })
       .catch(() => {
@@ -357,6 +364,9 @@ export default function ImpostazioniTab() {
         body: JSON.stringify({
           googleDriveFolderUrl: driveUrl,
           salvaAncheInLocale: salvaLocale,
+          oauthClientId,
+          oauthClientSecret,
+          oauthRefreshToken,
           testConnection: testConnection,
         }),
       });
@@ -449,6 +459,64 @@ export default function ImpostazioniTab() {
               onChange={(e) => setDriveUrl(e.target.value)}
               className="font-mono text-sm bg-background"
             />
+          </div>
+
+          {/* Sezione Credenziali OAuth 2.0 (Quota Utente) */}
+          <div className="rounded-lg border p-4 bg-background space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm font-medium">Autenticazione OAuth 2.0 (Quota Utente)</span>
+                <p className="text-xs text-muted-foreground">
+                  Necessaria per caricare screenshot su Google Drive evitando l&apos;errore quota storage dei Service Account.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowOauth(!showOauth)}
+                className="text-xs"
+              >
+                {showOauth ? 'Nascondi Dettagli OAuth' : 'Configura Credenziali OAuth'}
+              </Button>
+            </div>
+
+            {showOauth && (
+              <div className="space-y-3 pt-2 border-t text-sm">
+                <div className="space-y-1">
+                  <Label htmlFor="oauthClientId" className="text-xs font-mono">OAuth Client ID</Label>
+                  <Input
+                    id="oauthClientId"
+                    placeholder="324562797247-xxxx.apps.googleusercontent.com"
+                    value={oauthClientId}
+                    onChange={(e) => setOauthClientId(e.target.value)}
+                    className="font-mono text-xs bg-muted/30"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="oauthClientSecret" className="text-xs font-mono">OAuth Client Secret</Label>
+                  <Input
+                    id="oauthClientSecret"
+                    type="password"
+                    placeholder="GOCSPX-xxxx"
+                    value={oauthClientSecret}
+                    onChange={(e) => setOauthClientSecret(e.target.value)}
+                    className="font-mono text-xs bg-muted/30"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="oauthRefreshToken" className="text-xs font-mono">OAuth Refresh Token</Label>
+                  <Input
+                    id="oauthRefreshToken"
+                    type="password"
+                    placeholder="1//0xxxx"
+                    value={oauthRefreshToken}
+                    onChange={(e) => setOauthRefreshToken(e.target.value)}
+                    className="font-mono text-xs bg-muted/30"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between rounded-lg border p-4 bg-background">

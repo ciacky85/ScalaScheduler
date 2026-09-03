@@ -1,6 +1,6 @@
 {
-  "version": "1.6.3",
-  "label": "v1.6.3",
+  "version": "1.6.4",
+  "label": "v1.6.4",
   "buildDate": "2026-09-03",
-  "changelog": "Upload file con createReadStream nativo, propagazione errori e sincronizzazione affidabile dei file su Drive"
+  "changelog": "Autenticazione OAuth 2.0 con quota personale per upload screenshot e risoluzione definitiva errore Service Account quota"
 }

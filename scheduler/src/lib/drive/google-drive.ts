@@ -20,10 +20,13 @@ const DEFAULT_DRIVE_FOLDER_ID = '1mqmjTTtz5-c0Fa8hDOfkx6ph1tWKCCs_';
 
 function getCandidateDriveConfigPaths(): string[] {
   return [
-    path.join(process.cwd(), 'src', 'app', 'config', 'drive_config.json'),
-    path.join(process.cwd(), 'config', 'drive_config.json'),
     '/app/config/drive_config.json',
     '/app/src/app/config/drive_config.json',
+    '/data/drive_config.json',
+    '/app/public/drive_config.json',
+    path.join(process.cwd(), 'src', 'app', 'config', 'drive_config.json'),
+    path.join(process.cwd(), 'config', 'drive_config.json'),
+    path.join(process.cwd(), 'public', 'drive_config.json'),
   ];
 }
 
@@ -99,7 +102,7 @@ export function getDriveConfig(): DriveConfig {
 
 /**
  * Crea il client di autenticazione per Google Drive:
- * 1. Priorità a OAuth 2.0 (User Token): agisce a nome dell'utente con quota personale
+ * 1. Priorità a OAuth 2.0 (User Token): agisce a nome dell'utente con quota personale (necessaria per caricare file su Drive personale)
  * 2. Fallback a Service Account (JWT)
  */
 export function createDriveAuth(): OAuth2Client | JWT {
@@ -111,6 +114,7 @@ export function createDriveAuth(): OAuth2Client | JWT {
     return oauth2Client;
   }
 
+  console.warn('[GoogleDrive] Attenzione: OAuth non configurato, fallback a Service Account.');
   const sa = getServiceAccount();
   return new JWT({
     email: sa.client_email || '',

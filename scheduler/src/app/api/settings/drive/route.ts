@@ -16,7 +16,14 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { googleDriveFolderUrl, salvaAncheInLocale, testConnection = false } = body;
+    const {
+      googleDriveFolderUrl,
+      salvaAncheInLocale,
+      oauthClientId,
+      oauthClientSecret,
+      oauthRefreshToken,
+      testConnection = false,
+    } = body;
 
     const folderId = extractDriveFolderId(googleDriveFolderUrl);
 
@@ -29,6 +36,9 @@ export async function POST(request: Request) {
     const updatedConfig = await saveDriveConfig({
       googleDriveFolderUrl: googleDriveFolderUrl ?? '',
       salvaAncheInLocale: salvaAncheInLocale ?? true,
+      ...(oauthClientId ? { oauthClientId } : {}),
+      ...(oauthClientSecret ? { oauthClientSecret } : {}),
+      ...(oauthRefreshToken ? { oauthRefreshToken } : {}),
     });
 
     return NextResponse.json({
