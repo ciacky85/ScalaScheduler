@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 import { JWT, OAuth2Client } from 'google-auth-library';
 import fs from 'fs/promises';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, createReadStream } from 'fs';
 import path from 'path';
 
 export interface DriveConfig {
@@ -457,15 +457,8 @@ export async function syncLocalShotsToDrive(): Promise<{
 
   const startTime = Date.now();
   const MAX_SYNC_DURATION_MS = 24000;
-  const { Readable } = await import('stream');
-
-  // Helper per caricare un singolo file su Drive
+  // Helper per caricare un singolo file su Drive tramite Stream nativo
   async function uploadFileToFolder(folderId: string, filePath: string, fileName: string): Promise<boolean> {
-    const buffer = await fs.readFile(filePath);
-    const stream = new Readable();
-    stream.push(buffer);
-    stream.push(null);
-
     const isPng = fileName.toLowerCase().endsWith('.png');
     const upRes: any = await drive.files.create({
       requestBody: {
@@ -474,7 +467,7 @@ export async function syncLocalShotsToDrive(): Promise<{
       },
       media: {
         mimeType: isPng ? 'image/png' : 'image/jpeg',
-        body: stream,
+        body: createReadStream(filePath),
       },
       fields: 'id, name',
       supportsAllDrives: true,

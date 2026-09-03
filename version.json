@@ -1,6 +1,6 @@
 {
-  "version": "1.6.2",
-  "label": "v1.6.2",
+  "version": "1.6.3",
+  "label": "v1.6.3",
   "buildDate": "2026-09-03",
-  "changelog": "Confronto cartelle ultra-rapido: crea solo cartelle mancanti su Drive e sincronizza nuovi screenshot di oggi"
+  "changelog": "Upload file con createReadStream nativo, propagazione errori e sincronizzazione affidabile dei file su Drive"
 }

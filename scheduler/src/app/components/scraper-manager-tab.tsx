@@ -165,7 +165,7 @@ export default function ScraperManagerTab() {
         throw new Error(`Risposta server non valida (${res.status}): ${text.slice(0, 120)}`);
       }
 
-      if (!res.ok || !data.ok) {
+      if (!res.ok || !data.ok || data.result?.ok === false) {
         throw new Error(data.error || (data.result?.errors && data.result.errors.join(', ')) || 'Errore sincronizzazione');
       }
 
