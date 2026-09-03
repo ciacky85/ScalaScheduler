@@ -2,49 +2,53 @@
 
 > **Progetto**: Chorus Calendar Sync (aka "ScalaScheduler")
 > **Autore**: ciacky85 (Carlo)
-> **Scopo**: Estrarre gli eventi dai programmi di lavoro del Coro del Teatro alla Scala (PDF e pagine web) e sincronizzarli su calendari Google tramite Service Account. Archiviare screenshot degli ODG su Google Drive.
-> **Data analisi**: 01/09/2026
-> **Ultimo aggiornamento**: 01/09/2026 — Modulo Autenticazione & Login, Gestione Utenti (Admin), Workflow di Approvazione Registrazioni, Associazione Granulare Utenti-Calendari Google, RBAC Tab Visibility, Interfaccia Unificata Calendari, Ottimizzazione Docker Standalone, Diagnostica Dettagliata Google Drive API
+> **Scopo**: Estrarre gli eventi dai programmi di lavoro del Coro del Teatro alla Scala (PDF e pagine web) e sincronizzarli su calendari Google tramite Service Account. Archiviare screenshot degli ODG su Google Drive con autenticazione OAuth 2.0.
+> **Data analisi iniziale**: 01/09/2026
+> **Versione attuale**: **v2.0.0** (03/09/2026) — **Major Release: Architettura Unificata a Singolo Container** (Next.js + Python Playwright integrati), Sincronizzazione Google Drive a due fasi con upload in stream nativo (`fs.createReadStream`), Risoluzione errore storage quota dei Service Account con OAuth 2.0 User Quota in `drive_config.json`, Sistema di Versioning tracciato su interfaccia e `version.json`.
 
 ---
 
-## 1. Panoramica Architetturale
+## 1. Panoramica Architetturale (v2.0.0)
 
-Il sistema è composto da **3 sotto-progetti indipendenti** che comunicano tramite file JSON condivisi:
+A partire dalla release **v2.0.0**, l'architettura è stata consolidata da due container distinti a un **singolo container Docker unificato** multi-stage basato su `node:20-bookworm-slim` (Debian). Questo garantisce che la WebApp Next.js e il motore di scraping Python con Playwright Chromium comunichino localmente su `localhost:3000` con latenza zero e senza attriti di rete Docker interna.
 
 ```mermaid
-graph LR
-    subgraph "Docker Container 1"
-        A["ODG Scraper<br/>(Python)"]
-    end
-    subgraph "Docker Container 2"
-        B["Scheduler App<br/>(Next.js)"]
-        C["Cron Runner<br/>(Node.js)"]
-    end
-    subgraph "Esterni"
-        D["Teatro alla Scala<br/>ERP Web"]
-        E["Google Calendar API"]
-        F["Gemini AI<br/>(Genkit)"]
-        G["Google Drive API"]
+graph TD
+    subgraph "Unico Container Docker: ScalaScheduler (v2.0.0)"
+        direction TB
+        A["WebApp Next.js<br/>(Porta 3000)"]
+        B["ODG Scraper Engine<br/>(Python 3.11 + Playwright Chromium)"]
+        C["Cron Runner Daemon<br/>(Node.js)"]
+        D["Volumi Locali Montati<br/>/app/config & /data"]
+
+        A <-->|"API Locali Dirette (localhost:3000)"| B
+        C -->|"Sync POST /api/odg/cron"| A
+        A --- D
+        B --- D
     end
 
-    D -->|"HTML Scraping"| A
-    A -->|"odg_structured.json"| B
-    B -->|"Google Calendar API"| E
-    B -->|"Screenshot Upload"| G
-    B -->|"Error Report"| F
-    C -->|"HTTP POST"| B
-    A -->|"Screenshot via API"| B
+    subgraph "Servizi Esterni"
+        E["Teatro alla Scala<br/>ERP Web"]
+        F["Google Calendar API<br/>(Service Account)"]
+        G["Google Drive API<br/>(OAuth 2.0 User Quota)"]
+        H["Gemini AI<br/>(Genkit)"]
+    end
+
+    B -->|"Playwright Headless"| E
+    A -->|"Google Calendar API"| F
+    A -->|"Upload Screenshot Stream"| G
+    A -->|"Error Report AI"| H
 ```
 
-### I 3 Moduli nel Monorepo Unificato
+### Componenti del Repository
 
-| Modulo | Linguaggio | Ruolo |
-|--------|-----------|-------|
-| `odg-docker-scraper/` | Python 3.12 | Microservizio scraping periodico autonomo → produce `odg_structured.json` e legge `config.json` |
-| `scheduler/` | TypeScript/Next.js 15 | App web principale: parsing PDF, export Google Calendar, gestione Drive, **Autenticazione Multi-Utente con RBAC**, **Pannello Admin ODG Scraper** |
-| `docker-compose.yml` | Docker Compose | Orchestrazione unificata di entrambi i container con mappatura volumi Portainer |
-| `scheduler_test/` | TypeScript/Next.js | ⚠️ **DEPRECATA** — Versione precedente, da rimuovere. Non è più in uso. |
+| Modulo / File | Linguaggio / Tipo | Ruolo |
+|---------------|-------------------|-------|
+| `Dockerfile` | Docker Multi-Stage | Build unificato: compila Next.js standalone, installa Python 3.11, Playwright Chromium headless e dipendenze di sistema grafiche su Debian Bookworm. |
+| `docker-compose.yml` | Docker Compose | Stack a singolo servizio `scala-scheduler` per Portainer con mappatura diretta dei volumi `/app/config` e `/data`. |
+| `scheduler/` | TypeScript / Next.js 15 | WebApp principale: gestione calendari, import PDF, interfaccia ODG, sincronizzazione Google Drive, autenticazione RBAC e API di backend. |
+| `odg-docker-scraper/` | Python 3.11 / Playwright | Motore di scraping headless e cattura screenshot con watermark per l'ERP del teatro. |
+| `version.json` | JSON | File tracciato alla radice per l'allineamento di versione e changelog tra codice e runtime. |
 
 ---
 
@@ -531,30 +535,32 @@ Il file [`estraiProgrammaCoro.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGr
   - Output: `string` (report leggibile)
   - Prompt: chiede all'AI di riassumere gli errori e suggerire soluzioni
 
-### 3.11 Integrazione Google Drive
+### 3.11 Integrazione Google Drive & Sincronizzazione ad Alte Prestazioni
 
-Modulo [`lib/drive/google-drive.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/lib/drive/google-drive.ts) — gestisce l'intero ciclo di vita degli screenshot su Google Drive:
+Modulo [`lib/drive/google-drive.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/lib/drive/google-drive.ts) — gestisce l'intero ciclo di vita e sincronizzazione degli screenshot su Google Drive:
 
 | Funzione | Descrizione |
 |----------|-------------|
-| `extractDriveFolderId(urlOrId)` | Estrae l'ID cartella da qualsiasi formato URL di Google Drive |
-| `createDriveAuth()` | Crea client JWT con scope Drive usando `service-account-key.json` |
-| `getDriveConfig()` | Legge `drive_config.json` con fallback a defaults |
-| `saveDriveConfig(config)` | Persiste la configurazione su file JSON |
-| `verifyDriveFolderAccess(folderId)` | Verifica che il SA abbia accesso alla cartella. **Diagnostica dettagliata**: include `includeItemsFromAllDrives: true`, `supportsAllDrives: true` e mostra il messaggio di errore originale dell'API Google (es. "Google Drive API has not been used in project...") per errori 403/404 |
-| `uploadScreenshotToDrive(buffer, fileName, mimeType)` | Upload file nella cartella configurata via Google Drive API v3 |
+| `extractDriveFolderId(urlOrId)` | Estrae l'ID cartella da qualsiasi formato URL di Google Drive o accetta l'ID diretto |
+| `createDriveAuth()` | **Autenticazione a priorità**: crea client `OAuth2Client` se sono configurate le credenziali utente (`oauthClientId`, `oauthClientSecret`, `oauthRefreshToken`) garantendo la **quota di archiviazione personale**; in fallback utilizza il client JWT con `service-account-key.json` |
+| `getDriveConfig()` | Legge `drive_config.json` cercandolo su `/app/config`, `/data`, o `public/` con fallback alle variabili d'ambiente |
+| `saveDriveConfig(config)` | Persiste la configurazione su `/app/config/drive_config.json` preservando inalterate le credenziali OAuth salvate |
+| `verifyDriveFolderAccess(folderId)` | Verifica l'accesso alla cartella con diagnostica avanzata (include `supportsAllDrives: true`) e visualizzazione del messaggio originale dell'API Google |
+| `syncLocalShotsToDrive()` | **Architettura Folder-First Diff a due fasi**: pre-carica l'albero cartelle di Drive con una singola chiamata, calcola il diff insiemistico con le cartelle locali, salta istantaneamente centinaia di cartelle storiche a costo zero e crea/carica solo le cartelle mancanti |
+| `uploadFileToFolder(folderId, path, file)` | Carica il singolo file immagine direttamente da disco tramite **stream nativo di Node.js (`fs.createReadStream`)**, eliminando problemi di buffer virtuali e garantendo upload in meno di 1 secondo per file |
 
-**Scope Google Drive richiesti**:
-```
-https://www.googleapis.com/auth/drive
-https://www.googleapis.com/auth/drive.file
-```
+#### Algoritmo di Sincronizzazione a Due Fasi (Folder-First Diff)
+1. **Rilevamento dinamico cartella screenshot**: scansione dei percorsi candidati (`/data/odg_shots`, `/app/public/odg_shots`, ecc.) e selezione automatica della cartella con il maggior numero di sottocartelle data.
+2. **Pre-fetch in batch**: una sola chiamata `drive.files.list` per recuperare tutte le cartelle su Drive con `mimeType = folder`.
+3. **Diff Insiemistico (Set Difference)**:
+   - `missingOnDriveDirs`: cartelle presenti in locale ma assenti su Drive. Vengono create ed i relativi screenshot caricati via stream.
+   - `existingOnDriveDirs`: cartelle storiche già presenti su Drive. Vengono saltate istantaneamente a costo computazionale nullo, evitando timeout HTTP (504).
+   - **Cartella odierna (`isDateToday`)**: verifica specifica dei singoli file di oggi per caricare tempestivamente nuovi screenshot generati durante la giornata.
 
-**Formati URL supportati** per il campo cartella:
-- `https://drive.google.com/drive/folders/1aBcD_efGhIjKlMnOpQrStUvWxYz`
-- `https://drive.google.com/drive/u/0/folders/1aBcD_efGhIjKlMnOpQrStUvWxYz`
-- `https://drive.google.com/open?id=1aBcD_efGhIjKlMnOpQrStUvWxYz`
-- `1aBcD_efGhIjKlMnOpQrStUvWxYz` (ID diretto)
+#### Risoluzione Errore Quota Storage dei Service Account
+Google Drive impedisce ai Service Account di creare file in cartelle personali condivise restituendo l'errore:
+> `Service Accounts do not have storage quota. Leverage shared drives or use OAuth delegation instead.`
+ScalaScheduler risolve nativamente il problema consentendo l'inserimento delle credenziali **OAuth 2.0 (User Token)** in `drive_config.json`. Il sistema si autentica con l'identità e la quota dell'utente proprietario della cartella (15 GB+ di spazio).
 
 ### 3.12 Gestione Stato Applicazione
 
@@ -912,30 +918,37 @@ docker-compose up --build
 | `src/ai/genkit.ts` | Config Genkit (Gemini 2.5 Flash) |
 | `src/ai/flows/generate-export-error-report.ts` | Flow AI per report errori |
 
-### `scheduler/` — Infrastruttura
+### Infrastruttura & Deployment Unificato (v2.0.0)
+
 | File | Funzione |
 |------|----------|
-| `Dockerfile` | Multi-stage standalone build (deps → build → run) ~180 MB |
-| `Dockerfile.cron` | Alpine + dcron (esegue run-cron.sh ogni minuto) |
-| `docker-compose.yml` | app (3000) + cron-scheduler |
-| `cron-runner.js` | Scheduler Node: polling 15s, match orari, esegue run-cron.sh |
-| `run-cron.sh` | cURL POST a /api/odg/cron (3 retry) |
-| `entrypoint-wrapper.sh` | Setup timezone + avvia cron-runner in bg + npm start |
-| `apphosting.yaml` | Config Firebase (maxInstances: 1) |
+| `Dockerfile` (root) | **[UNIFICATO v2.0.0]** Multi-stage build (`node:20-bookworm-slim`) che compila Next.js standalone, installa Python 3.11 con venv isolato, librerie grafiche e Playwright Chromium headless |
+| `docker-compose.yml` (root) | **[UNIFICATO v2.0.0]** Servizio singolo `scala-scheduler` su porta `3010:3000` con volumi `/app/config` e `/data` |
+| `scheduler/entrypoint-wrapper.sh` | Wrapper di boot: timezone `Europe/Rome`, avvio demone `main.py` (scraper), avvio `cron-runner.js`, e avvio server Next.js |
+| `scheduler/cron-runner.js` | Demone Node.js: polling configurabile, match orari ODG e trigger locale verso `/api/odg/cron` |
+| `scheduler/run-cron.sh` | Script di invocazione HTTP locale verso `http://localhost:3000/api/odg/cron` con retry |
+| `version.json` (root) | File JSON di tracciamento versione software allineato tra build e runtime |
 
 ---
 
-## 11. Ambiente di Deploy
+## 11. Ambiente di Deploy (v2.0.0 Single-Container)
 
-Il sistema è attualmente in produzione su un **server locale/NAS** tramite Docker Compose. Non è su cloud/Firebase nonostante la presenza di `apphosting.yaml`.
+Il sistema è deployato tramite **Portainer (Stack da Git Repository)** su server Linux/NAS in un **singolo container unificato**:
 
 ```
-NAS / Server Locale
-├── Docker: odg-scraper (Python) — scraping periodico
-├── Docker: chorus-calendar-sync (Next.js) — app web + API
-└── Docker: chorus-calendar-cron (Alpine) — scheduler
-    └── Volume condiviso: /data → odg_structured.json
+NAS / Server Locale (Portainer)
+└── Docker Container Unico: ScalaScheduler (v2.0.0)
+    ├── WebApp Next.js 15 (Node.js 20 Standalone — porta 3000)
+    ├── ODG Scraper Engine (Python 3.11 + Playwright Chromium Headless)
+    ├── Cron Runner Daemon (Node.js)
+    ├── Volume Host 1: /srv/docker_conf/configs/ScalaScheduler/config -> /app/config
+    └── Volume Host 2: /srv/docker_conf/configs/ScalaScheduler/odg-scraper/config -> /data
 ```
+
+### Vantaggi dell'Architettura v2.0.0:
+1. **Latenza di Rete Zero**: Scraper e WebApp comunicano su `http://localhost:3000` senza passare da bridge o DNS Docker.
+2. **Zero Conflitti File/Permessi**: Entrambi i processi condividono direttamente il filesystem `/data` e `/app/config`.
+3. **Aggiornamenti Atomici**: Un solo deploy con "Re-pull image and redeploy" su Portainer aggiorna contemporaneamente frontend, backend e scraper.
 
 ---
 

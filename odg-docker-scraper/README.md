@@ -1,12 +1,13 @@
-# ODG Scraper 2.3 — JSON tabellare
+# ODG Scraper Engine (Python Playwright)
 
-## Build
-docker build --no-cache -t odg-scraper:2.3 --build-arg BUILD_TS=$(date +%s) .
+Motore di estrazione dati e acquisizione screenshot per i programmi di lavoro e gli Ordini del Giorno del Coro del Teatro alla Scala.
 
-## Run
-mkdir -p data
-cp config.json.example data/config.json
-docker run -d --name odg-scraper-2_3 -e TZ=Europe/Rome -v "$PWD/data:/data" odg-scraper:2.3
-docker logs -f odg-scraper-2_3
+- **Tecnologie**: Python 3.11, Playwright Chromium headless, BeautifulSoup4, LXML, Pillow.
+- **Funzionalità**:
+  - Scraping autonomo delle pagine ERP (`pps=0` e `pps=1`).
+  - Parsing avanzato delle tabelle, orari, luoghi, destinatari e note con asterisco `*`.
+  - Cattura screenshot a tutta pagina con watermark timestamp e hash di verifica.
+  - Sincronizzazione screenshot via API locali su Google Drive.
+- **Integrazione**: A partire dalla versione `v2.0.0`, questo modulo è incorporato ed eseguito direttamente nel container unificato principale `ScalaScheduler` in ascolto locale su `http://localhost:3000`.
 
-Output di default: /data/odg_structured.json
+Per dettagli operativi e di deploy, consultare il [`README.md`](../README.md) alla radice del progetto.
