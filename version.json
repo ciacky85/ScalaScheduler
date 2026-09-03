@@ -1,6 +1,6 @@
 {
-  "version": "1.6.1",
-  "label": "v1.6.1",
+  "version": "1.6.2",
+  "label": "v1.6.2",
   "buildDate": "2026-09-03",
-  "changelog": "Today-First absolute priority sync, archive fast skipping, date format normalization, empty folder notice"
+  "changelog": "Confronto cartelle ultra-rapido: crea solo cartelle mancanti su Drive e sincronizza nuovi screenshot di oggi"
 }

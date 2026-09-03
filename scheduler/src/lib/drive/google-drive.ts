@@ -315,18 +315,42 @@ export async function syncLocalShotsToDrive(): Promise<{
     return { ok: false, totalFound: 0, uploaded: 0, skipped: 0, partial: false, errors: ['Nessuna cartella Google Drive configurata.'] };
   }
 
+  // 1. Rileva in modo intelligente la cartella contenente gli screenshot locali
   const candidateShotDirs = [
     path.join(process.cwd(), 'public', 'odg_shots'),
     '/app/public/odg_shots',
     '/data/odg_shots',
     path.join(process.cwd(), 'odg_shots'),
+    '/app/public',
+    path.join(process.cwd(), 'public'),
+    '/data',
   ];
 
   let shotsDir: string | null = null;
-  for (const d of candidateShotDirs) {
-    if (existsSync(d)) {
-      shotsDir = d;
-      break;
+  let maxDateDirsFound = -1;
+
+  for (const cand of candidateShotDirs) {
+    if (existsSync(cand)) {
+      try {
+        const entries = await fs.readdir(cand, { withFileTypes: true });
+        const dateDirs = entries.filter(
+          (e) => e.isDirectory() && (/^\d{4}-\d{2}-\d{2}/.test(e.name) || /^\d{2}-\d{2}-\d{4}/.test(e.name))
+        );
+        if (dateDirs.length > maxDateDirsFound) {
+          maxDateDirsFound = dateDirs.length;
+          shotsDir = cand;
+        }
+      } catch (_) {}
+    }
+  }
+
+  // Fallback al primo candidato esistente se nessun dateDirs trovato
+  if (!shotsDir) {
+    for (const cand of candidateShotDirs) {
+      if (existsSync(cand)) {
+        shotsDir = cand;
+        break;
+      }
     }
   }
 
@@ -337,8 +361,19 @@ export async function syncLocalShotsToDrive(): Promise<{
   const auth = createDriveAuth();
   const drive = google.drive({ version: 'v3', auth });
 
-  // 1. Precarica in memoria tutte le cartelle Drive già esistenti per evitare decine di chiamate ripetute
-  const folderMap = new Map<string, string>(); // subfolderName -> subfolderId
+  // Funzione normalizzazione data in formato standard ISO YYYY-MM-DD
+  function normalizeDateFolderName(name: string): string {
+    const mIT = name.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    if (mIT) return `${mIT[3]}-${mIT[2]}-${mIT[1]}`;
+    return name;
+  }
+
+  // =========================================================================
+  // FASE 1: CONFRONTO CARTELLE GIA' PRESENTI IN LOCALE E SU DRIVE
+  // =========================================================================
+
+  // 1a. Precarica tutte le cartelle già esistenti su Google Drive (singola query ultra-veloce)
+  const driveFolderMap = new Map<string, string>(); // normalizedName -> folderId
   try {
     let pageToken: string | undefined = undefined;
     do {
@@ -347,75 +382,70 @@ export async function syncLocalShotsToDrive(): Promise<{
         fields: 'nextPageToken, files(id, name)',
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
+        pageSize: 1000,
         pageToken,
       });
       if (listRes.data && listRes.data.files) {
         for (const f of listRes.data.files) {
-          if (f.name && f.id) folderMap.set(f.name, f.id);
+          if (f.name && f.id) {
+            driveFolderMap.set(normalizeDateFolderName(f.name), f.id);
+          }
         }
       }
       pageToken = listRes.data?.nextPageToken || undefined;
     } while (pageToken);
   } catch (e: any) {
-    console.warn('[GoogleDrive] Errore pre-fetching cartelle Drive:', e.message);
+    console.warn('[GoogleDrive] Errore caricamento cartelle Drive:', e.message);
   }
 
-  function normalizeDriveFolderName(name: string): string {
-    const mIT = name.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-    if (mIT) return `${mIT[3]}-${mIT[2]}-${mIT[1]}`;
-    return name;
+  // 1b. Legge tutte le cartelle presenti in locale
+  const rawEntries = await fs.readdir(shotsDir, { withFileTypes: true });
+  const localDirs = rawEntries.filter((e) => e.isDirectory());
+
+  // Date di oggi e ieri
+  const now = new Date();
+  const todayISO = now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }); // "2026-09-03"
+  const [tY, tM, tD] = todayISO.split('-');
+  const todayIT = `${tD}-${tM}-${tY}`; // "03-09-2026"
+  const yesterdayDate = new Date(Date.now() - 86400000);
+  const yesterdayISO = yesterdayDate.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+  const [yY, yM, yD] = yesterdayISO.split('-');
+  const yesterdayIT = `${yD}-${yM}-${yY}`;
+
+  function isDateToday(name: string): boolean {
+    const norm = normalizeDateFolderName(name);
+    return norm === todayISO || name === todayIT || name.startsWith(todayISO) || name.startsWith(todayIT);
   }
 
-  async function getOrCreateDriveSubfolder(subName: string): Promise<string> {
-    const normName = normalizeDriveFolderName(subName);
-    if (folderMap.has(normName)) {
-      return folderMap.get(normName)!;
+  function isDateYesterday(name: string): boolean {
+    const norm = normalizeDateFolderName(name);
+    return norm === yesterdayISO || name === yesterdayIT || name.startsWith(yesterdayISO) || name.startsWith(yesterdayIT);
+  }
+
+  // 1c. Confronto: separa cartelle MANCANTI da quelle GIA' PRESENTI su Drive
+  const missingOnDriveDirs: typeof localDirs = [];
+  const existingOnDriveDirs: typeof localDirs = [];
+
+  for (const dir of localDirs) {
+    const normName = normalizeDateFolderName(dir.name);
+    if (driveFolderMap.has(normName)) {
+      existingOnDriveDirs.push(dir);
+    } else {
+      missingOnDriveDirs.push(dir);
     }
-    const createFolderRes: any = await drive.files.create({
-      requestBody: {
-        name: normName,
-        mimeType: 'application/vnd.google-apps.folder',
-        parents: [config.googleDriveFolderId],
-      },
-      fields: 'id, name',
-      supportsAllDrives: true,
-    });
-    const newId = createFolderRes.data?.id || config.googleDriveFolderId;
-    folderMap.set(normName, newId);
-    return newId;
   }
 
-  // Cache dei file già presenti in ciascuna cartella Google Drive per non ri-caricarli
-  const folderFilesCache = new Map<string, Set<string>>(); // targetFolderId -> Set di nomi file già su Drive
+  // Ordina le mancanti mettendo prima oggi/ieri e poi le più recenti
+  missingOnDriveDirs.sort((a, b) => {
+    const pA = isDateToday(a.name) ? 0 : isDateYesterday(a.name) ? 1 : 2;
+    const pB = isDateToday(b.name) ? 0 : isDateYesterday(b.name) ? 1 : 2;
+    if (pA !== pB) return pA - pB;
+    return b.name.localeCompare(a.name);
+  });
 
-  async function getFilesAlreadyInDriveFolder(targetFolderId: string): Promise<Set<string>> {
-    if (folderFilesCache.has(targetFolderId)) {
-      return folderFilesCache.get(targetFolderId)!;
-    }
-    const set = new Set<string>();
-    try {
-      let pageToken: string | undefined = undefined;
-      do {
-        const listFilesRes: any = await drive.files.list({
-          q: `'${targetFolderId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
-          fields: 'nextPageToken, files(id, name)',
-          supportsAllDrives: true,
-          includeItemsFromAllDrives: true,
-          pageToken,
-        });
-        if (listFilesRes.data && listFilesRes.data.files) {
-          for (const f of listFilesRes.data.files) {
-            if (f.name) set.add(f.name);
-          }
-        }
-        pageToken = listFilesRes.data?.nextPageToken || undefined;
-      } while (pageToken);
-    } catch (err: any) {
-      console.warn(`[GoogleDrive] Errore cache file per cartella ${targetFolderId}:`, err.message);
-    }
-    folderFilesCache.set(targetFolderId, set);
-    return set;
-  }
+  // =========================================================================
+  // FASE 2: CREAZIONE CARTELLE MANCANTI E CARICAMENTO CONTENUTO
+  // =========================================================================
 
   const errors: string[] = [];
   let uploadedCount = 0;
@@ -423,203 +453,151 @@ export async function syncLocalShotsToDrive(): Promise<{
   let totalFound = 0;
   let partial = false;
   let todayNotice: string | undefined = undefined;
+  const createdFolderNames: string[] = [];
 
   const startTime = Date.now();
-  let dirEntries: any[] = [];
-  let checkedDirs: string[] = [];
-  try {
-    const rawEntries = await fs.readdir(shotsDir, { withFileTypes: true });
+  const MAX_SYNC_DURATION_MS = 24000;
+  const { Readable } = await import('stream');
 
-    // Calcolo date odierne e recenti per priorità assoluta
-    const now = new Date();
-    const todayISO = now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }); // "2026-09-03"
-    const [tY, tM, tD] = todayISO.split('-');
-    const todayIT = `${tD}-${tM}-${tY}`; // "03-09-2026"
-    const yesterdayDate = new Date(Date.now() - 86400000);
-    const yesterdayISO = yesterdayDate.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
-    const [yY, yM, yD] = yesterdayISO.split('-');
-    const yesterdayIT = `${yD}-${yM}-${yY}`;
+  // Helper per caricare un singolo file su Drive
+  async function uploadFileToFolder(folderId: string, filePath: string, fileName: string): Promise<boolean> {
+    const buffer = await fs.readFile(filePath);
+    const stream = new Readable();
+    stream.push(buffer);
+    stream.push(null);
 
-    function getDirPriority(name: string): number {
-      if (name === todayISO || name === todayIT || name.startsWith(todayISO) || name.startsWith(todayIT)) return 0;
-      if (name === yesterdayISO || name === yesterdayIT || name.startsWith(yesterdayISO) || name.startsWith(yesterdayIT)) return 1;
-      return 2;
+    const isPng = fileName.toLowerCase().endsWith('.png');
+    const upRes: any = await drive.files.create({
+      requestBody: {
+        name: fileName,
+        parents: [folderId],
+      },
+      media: {
+        mimeType: isPng ? 'image/png' : 'image/jpeg',
+        body: stream,
+      },
+      fields: 'id, name',
+      supportsAllDrives: true,
+    });
+    return !!upRes.data?.id;
+  }
+
+  // 2a. Crea le cartelle mancanti su Drive e carica i rispettivi file
+  for (const dir of missingOnDriveDirs) {
+    if (Date.now() - startTime > MAX_SYNC_DURATION_MS) {
+      partial = true;
+      break;
     }
 
-    // Ordina mettendo OGGI al primissimo posto (priorità 0), IERI (priorità 1), poi le altre decrescenti
-    dirEntries = rawEntries
-      .filter((e) => e.isDirectory())
-      .sort((a, b) => {
-        const pA = getDirPriority(a.name);
-        const pB = getDirPriority(b.name);
-        if (pA !== pB) return pA - pB;
-        return b.name.localeCompare(a.name);
+    const normName = normalizeDateFolderName(dir.name);
+    const subDirPath = path.join(shotsDir, dir.name);
+
+    let filesInSub: string[] = [];
+    try {
+      filesInSub = await fs.readdir(subDirPath);
+    } catch (_) {
+      continue;
+    }
+
+    const imgFiles = filesInSub.filter((f) => /\.(png|jpe?g|webp)$/i.test(f));
+    totalFound += imgFiles.length;
+
+    // Crea la cartella su Drive
+    let targetFolderId: string;
+    try {
+      const createRes: any = await drive.files.create({
+        requestBody: {
+          name: normName,
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [config.googleDriveFolderId],
+        },
+        fields: 'id, name',
+        supportsAllDrives: true,
       });
+      targetFolderId = createRes.data?.id || config.googleDriveFolderId;
+      driveFolderMap.set(normName, targetFolderId);
+      createdFolderNames.push(normName);
+    } catch (fErr: any) {
+      errors.push(`Creazione cartella ${normName}: ${fErr.message}`);
+      continue;
+    }
 
-    const rootFiles = rawEntries
-      .filter((e) => e.isFile() && /\.(png|jpe?g|webp)$/i.test(e.name))
-      .sort((a, b) => b.name.localeCompare(a.name));
+    // Se la cartella di oggi è vuota, avvisa l'utente
+    if (imgFiles.length === 0 && isDateToday(dir.name)) {
+      todayNotice = `Cartella ${normName} creata su Drive, ma in locale non contiene ancora file immagine (.png). Usa "Esegui Scraper Adesso" per generare gli screenshot di oggi.`;
+    }
 
-    const { Readable } = await import('stream');
-
-    // 1. Processa le sottocartelle data (oggi e ieri per prime in assoluto!)
-    let checkedDirsCount = 0;
-    for (const dirEntry of dirEntries) {
+    // Carica tutti i file immagine della nuova cartella
+    for (const file of imgFiles) {
       if (Date.now() - startTime > MAX_SYNC_DURATION_MS) {
         partial = true;
         break;
       }
-
-      checkedDirsCount++;
-      checkedDirs.push(dirEntry.name);
-      const subDirPath = path.join(shotsDir, dirEntry.name);
-      let filesInSub: string[] = [];
       try {
-        filesInSub = await fs.readdir(subDirPath);
-      } catch (_) {
-        continue;
-      }
-
-      const imgFiles = filesInSub
-        .filter((f) => /\.(png|jpe?g|webp)$/i.test(f))
-        .sort((a, b) => b.localeCompare(a));
-
-      const isTodayOrYesterday = getDirPriority(dirEntry.name) <= 1;
-
-      // Se la cartella di oggi in locale non ha screenshot, registriamo la nota per l'utente
-      if (imgFiles.length === 0) {
-        if (getDirPriority(dirEntry.name) === 0) {
-          todayNotice = `La cartella locale di oggi (${dirEntry.name}) non contiene file immagine (.png). Clicca su "Esegui Scraper Adesso" per generare gli screenshot di oggi.`;
-        }
-        continue;
-      }
-
-      totalFound += imgFiles.length;
-
-      const normName = normalizeDriveFolderName(dirEntry.name);
-
-      // OTTIMIZZAZIONE ARCHIVIO STORICO:
-      // Se la cartella è vecchia (non oggi né ieri) ed esiste già su Google Drive,
-      // sappiamo che è già sincronizzata dall'archivio: saltiamo la query file-by-file per completare in 1 secondo!
-      if (!isTodayOrYesterday && folderMap.has(normName) && checkedDirsCount > 5) {
-        skippedCount += imgFiles.length;
-        continue;
-      }
-
-      // Ottieni o crea la cartella su Drive
-      let targetFolderId = config.googleDriveFolderId;
-      try {
-        targetFolderId = await getOrCreateDriveSubfolder(dirEntry.name);
-      } catch (fErr: any) {
-        errors.push(`Cartella ${dirEntry.name}: ${fErr.message}`);
-        continue;
-      }
-
-      // Se la cartella su Drive è stata appena creata, sappiamo che è vuota senza fare chiamate
-      let existingInDrive = new Set<string>();
-      if (folderMap.has(normName)) {
-        existingInDrive = await getFilesAlreadyInDriveFolder(targetFolderId);
-      } else {
-        folderFilesCache.set(targetFolderId, existingInDrive);
-      }
-
-      for (const file of imgFiles) {
-        if (Date.now() - startTime > MAX_SYNC_DURATION_MS) {
-          partial = true;
-          break;
-        }
-
-        const finalDriveName = file;
-
-        if (existingInDrive.has(finalDriveName)) {
-          skippedCount++;
-          continue; // File già presente su Drive: skip istantaneo!
-        }
-
-        const fullFilePath = path.join(subDirPath, file);
-        try {
-          const buffer = await fs.readFile(fullFilePath);
-          const stream = new Readable();
-          stream.push(buffer);
-          stream.push(null);
-
-          const upRes: any = await drive.files.create({
-            requestBody: {
-              name: finalDriveName,
-              parents: [targetFolderId],
-            },
-            media: {
-              mimeType: file.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg',
-              body: stream,
-            },
-            fields: 'id, name',
-            supportsAllDrives: true,
-          });
-
-          if (upRes.data?.id) {
-            uploadedCount++;
-            existingInDrive.add(finalDriveName);
-          } else {
-            errors.push(`${dirEntry.name}/${file}: Mancato ID file Drive`);
-          }
-        } catch (upErr: any) {
-          const msg = upErr?.response?.data?.error?.message || upErr.message;
-          errors.push(`${dirEntry.name}/${file}: ${msg}`);
-        }
+        const ok = await uploadFileToFolder(targetFolderId, path.join(subDirPath, file), file);
+        if (ok) uploadedCount++;
+      } catch (upErr: any) {
+        errors.push(`${normName}/${file}: ${upErr.message}`);
       }
     }
-
-    // 2. Eventuali file immagine nella root di odg_shots
-    if (!partial && rootFiles.length > 0) {
-      totalFound += rootFiles.length;
-      const rootExisting = await getFilesAlreadyInDriveFolder(config.googleDriveFolderId);
-
-      for (const rf of rootFiles) {
-        if (Date.now() - startTime > MAX_SYNC_DURATION_MS) {
-          partial = true;
-          break;
-        }
-
-        if (rootExisting.has(rf.name)) {
-          skippedCount++;
-          continue;
-        }
-
-        const fullPath = path.join(shotsDir, rf.name);
-        try {
-          const buffer = await fs.readFile(fullPath);
-          const stream = new Readable();
-          stream.push(buffer);
-          stream.push(null);
-
-          const upRes: any = await drive.files.create({
-            requestBody: {
-              name: rf.name,
-              parents: [config.googleDriveFolderId],
-            },
-            media: {
-              mimeType: rf.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg',
-              body: stream,
-            },
-            fields: 'id, name',
-            supportsAllDrives: true,
-          });
-
-          if (upRes.data?.id) {
-            uploadedCount++;
-            rootExisting.add(rf.name);
-          }
-        } catch (upErr: any) {
-          const msg = upErr?.response?.data?.error?.message || upErr.message;
-          errors.push(`${rf.name}: ${msg}`);
-        }
-      }
-    }
-  } catch (err: any) {
-    return { ok: false, totalFound, uploaded: uploadedCount, skipped: skippedCount, partial, errors: [err.message] };
   }
 
-  const processedDetails = `Cartelle analizzate (${checkedDirs.length}): ${checkedDirs.slice(0, 4).join(', ')}`;
+  // 2b. Verifica specifica per la cartella di OGGI (anche se esisteva già su Drive)
+  // in modo da sincronizzare eventuali nuovi screenshot scattati in giornata
+  const todayExistingDir = existingOnDriveDirs.find((d) => isDateToday(d.name));
+  if (todayExistingDir && !partial) {
+    const normToday = normalizeDateFolderName(todayExistingDir.name);
+    const targetFolderId = driveFolderMap.get(normToday)!;
+    const subDirPath = path.join(shotsDir, todayExistingDir.name);
+
+    try {
+      const filesInSub = await fs.readdir(subDirPath);
+      const imgFiles = filesInSub.filter((f) => /\.(png|jpe?g|webp)$/i.test(f));
+      totalFound += imgFiles.length;
+
+      // Legge i file già presenti nella cartella di oggi su Drive
+      const listTodayRes: any = await drive.files.list({
+        q: `'${targetFolderId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
+        fields: 'files(id, name)',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+      });
+      const driveFilesSet = new Set<string>((listTodayRes.data?.files || []).map((f: any) => f.name));
+
+      for (const file of imgFiles) {
+        if (driveFilesSet.has(file)) {
+          skippedCount++;
+        } else {
+          try {
+            const ok = await uploadFileToFolder(targetFolderId, path.join(subDirPath, file), file);
+            if (ok) {
+              uploadedCount++;
+              driveFilesSet.add(file);
+            }
+          } catch (upErr: any) {
+            errors.push(`${normToday}/${file}: ${upErr.message}`);
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 2c. Per tutte le altre cartelle storiche già presenti su Drive:
+  // Skip immediato a costo 0 millisecondi (nessuna chiamata di rete necessaria!)
+  for (const dir of existingOnDriveDirs) {
+    if (isDateToday(dir.name)) continue; // già gestita sopra
+    try {
+      const subDirPath = path.join(shotsDir, dir.name);
+      const files = await fs.readdir(subDirPath);
+      const imgCount = files.filter((f) => /\.(png|jpe?g|webp)$/i.test(f)).length;
+      totalFound += imgCount;
+      skippedCount += imgCount;
+    } catch (_) {}
+  }
+
+  const processedDetails = createdFolderNames.length > 0
+    ? `Cartelle create su Drive: ${createdFolderNames.join(', ')} (totale locali: ${localDirs.length}, su Drive: ${driveFolderMap.size})`
+    : `Tutte le cartelle locali (${localDirs.length}) sono già allineate su Google Drive (${driveFolderMap.size} cartelle presenti). Percorso: ${shotsDir}`;
 
   return {
     ok: errors.length === 0,
