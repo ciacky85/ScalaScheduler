@@ -1,48 +1,60 @@
-# ScalaScheduler v2.0.0 — Chorus Calendar Sync & ODG Scraper
+# ScalaScheduler v2.1.0 — Chorus Calendar Sync & ODG Scraper
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](./version.json)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](./version.json)
 [![Docker](https://img.shields.io/badge/docker-single--container-green.svg)](./Dockerfile)
 [![Next.js](https://img.shields.io/badge/Next.js-15.3.3-black.svg)](https://nextjs.org/)
 [![Python](https://img.shields.io/badge/python-3.11-yellow.svg)](https://www.python.org/)
 
-Applicazione integrata per l'estrazione automatica dei programmi di lavoro e degli Ordini del Giorno (ODG) del **Coro del Teatro alla Scala**, sincronizzazione su **Google Calendar** e archiviazione automatica degli screenshot su **Google Drive**. 
+Applicazione integrata per l'estrazione automatica dei programmi di lavoro e degli Ordini del Giorno (ODG) del **Coro del Teatro alla Scala**, sincronizzazione su **Google Calendar**, rilevamento visivo delle modifiche con screenshot di confronto e archiviazione automatica su **Google Drive**.
 
-A partire dalla versione **v2.0.0**, l'intero ecosistema (WebApp Next.js + Motore Scraper Python con Playwright Chromium) è consolidato in un **singolo container Docker unificato**, eliminando qualsiasi problema di latenza o configurazione di rete inter-container.
+L'ecosistema (WebApp Next.js + Motore Scraper Python con Playwright Chromium) è consolidato in un **singolo container Docker unificato**, con auto-sync automatico post-scraping e latenza zero su rete locale interna.
 
 ---
 
 ## 🌟 Caratteristiche Principali
 
 1. **Importa Calendario (PDF Quindicinale)**:
-   - Parsing client-side con `pdfjs-dist`.
+   - Parsing client-side ad alta precisione con `pdfjs-dist`.
    - Riconoscimento intelligente di date, fasce orarie, luoghi e note a piè di pagina con asterischi `*`.
    - Tabella eventi modificabile (data, luogo, descrizione, fasce orarie).
    - Esportazione massiva su Google Calendar con slot orari ed eventi full-day.
    - **Isolamento utente**: ogni artista visualizza ed esporta solo verso il proprio calendario assegnato.
 
-2. **ODG (Ordine del Giorno da Web & Registro Modifiche)**:
-   - Visualizzazione in tempo reale dei dati estratti dall'ERP della Scala.
-   - Sincronizzazione idempotente con deduplicazione basata su SHA-1 content hash e UID univoco.
-   - Modalità **Dry Run** per simulare le modifiche prima di applicarle a Google Calendar.
-   - **Nuovo Registro Modifiche & Screenshot**: elenco cronologico completo di tutte le variazioni rilevate durante la giornata (screenshot aggiuntivi `_edit.png`), con baseline delle 00:02, anteprima visiva, dialog a schermo intero e link diretto su Google Drive.
+2. **ODG (Ordine del Giorno da Web & Registro Modifiche Visuali)** — **[AGGIORNATO v2.1.0]**:
+   - **Doppia Vista Integrata**:
+     - **Programma ODG & Push**: tabella in tempo reale con dati ERP, calcolo automatico orari con 8 livelli di fallback, modalità **Dry Run** e push su Google Calendar.
+     - **Registro Modifiche & Screenshot**: visualizzatore cronologico di tutte le revisioni intervenute durante la giornata.
+   - **Visual Diffing & Rilevamento Modifiche**:
+     - Lo scraper scatta la baseline iniziale della giornata (`YYYY-MM-DD.png`) alle 00:02.
+     - Nei cicli successivi calcola l'hash dei contenuti: se la pagina subisce variazioni, cattura lo scatto modificato (`YYYY-MM-DD_HHmm_edit.png`); se identica, evita scatti ridondanti.
+   - **Viewer Avanzato**:
+     - Dialog modale a schermo intero con zoom e dettagli temporali.
+     - Confronto visivo prima/dopo tra baseline e scatto modificato.
+     - Link diretto alla cartella Google Drive e download del PNG originale.
+     - Streaming locale sicuro ad alta efficienza tramite endpoint dedicato `/api/screenshots/image`.
 
-3. **Architettura Unificata a Singolo Container (v2.0.0)**:
+3. **Motore di Sincronizzazione Google Calendar Centralizzato (`odg-sync.ts`)** — **[NUOVO v2.1.0]**:
+   - Motore unificato e DRY per il push manuale (`/api/odg/push`) e l'auto-sync (`/api/odg/auto-sync`).
+   - Sincronizzazione idempotente con deduplicazione avanzata basata su SHA-1 content hash e UID univoco.
+
+4. **Architettura Unificata a Singolo Container & Auto-Sync** — **[AGGIORNATO v2.1.0]**:
    - WebApp e Scraper Python convivono nello stesso container (`node:20-bookworm-slim`).
    - Comunicazione diretta su `localhost:3000` a latenza zero.
-   - Demone dello scraper Python con gestione integrata degli orari `schedules` e push sequenziale automatico su Google Calendar gestito all'avvio da `entrypoint-wrapper.sh`.
+   - Il demone Python gestisce gli orari pianificati ed esegue la sequenza: scraping ERP ➔ screenshot diffing ➔ push automatico su Google Calendar (`POST /api/odg/auto-sync`) ➔ sincronizzazione Drive (`POST /api/screenshots/sync`).
+   - Eliminato completamente il container cron separato e rimossi script ridondanti.
 
-4. **Archiviazione Screenshot Google Drive ad Alte Prestazioni**:
+5. **Archiviazione Screenshot Google Drive ad Alte Prestazioni**:
    - **Confronto cartelle a due fasi (Folder-First Diff)**: pre-carica l'elenco cartelle su Drive con una singola chiamata e salta istantaneamente centinaia di cartelle storiche già allineate a costo zero millisecondi.
    - **Upload in Stream Nativo**: streaming diretto da disco tramite `fs.createReadStream`, senza accumulo in memoria virtuale.
    - **Quota Utente OAuth 2.0**: supporto alle credenziali OAuth 2.0 in `drive_config.json` per superare il limite di quota storage imposto da Google ai Service Account.
 
-5. **Autenticazione & Gestione Utenti (RBAC)**:
+6. **Autenticazione & Gestione Utenti (RBAC)**:
    - Login obbligatorio con cookie-based session (`auth-token`).
    - Registrazione utenti con flusso di approvazione/rifiuto dell'amministratore.
    - Ruoli: `admin` (accesso completo) e `user` (accesso limitato a Importa Calendario e ODG).
    - Associazione granulare `ownerUserId` per ciascun calendario Google.
 
-6. **Sistema di Versioning Tracciato**:
+7. **Sistema di Versioning Tracciato**:
    - Badge di versione visibile in testata sia nella schermata di login che nella dashboard.
    - File di allineamento sorgente [`version.json`](./version.json) nella radice del progetto.
 

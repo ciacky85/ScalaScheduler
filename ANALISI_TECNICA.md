@@ -2,27 +2,29 @@
 
 > **Progetto**: Chorus Calendar Sync (aka "ScalaScheduler")
 > **Autore**: ciacky85 (Carlo)
-> **Scopo**: Estrarre gli eventi dai programmi di lavoro del Coro del Teatro alla Scala (PDF e pagine web) e sincronizzarli su calendari Google tramite Service Account. Archiviare screenshot degli ODG su Google Drive con autenticazione OAuth 2.0.
+> **Scopo**: Estrarre gli eventi dai programmi di lavoro del Coro del Teatro alla Scala (PDF e pagine web) e sincronizzarli su calendari Google tramite Service Account. Rilevare modifiche visive giornaliere con visual diffing e archiviare gli screenshot su Google Drive con autenticazione OAuth 2.0.
 > **Data analisi iniziale**: 01/09/2026
-> **Versione attuale**: **v2.0.0** (03/09/2026) — **Major Release: Architettura Unificata a Singolo Container** (Next.js + Python Playwright integrati), Sincronizzazione Google Drive a due fasi con upload in stream nativo (`fs.createReadStream`), Risoluzione errore storage quota dei Service Account con OAuth 2.0 User Quota in `drive_config.json`, Sistema di Versioning tracciato su interfaccia e `version.json`.
+> **Versione attuale**: **v2.1.0** (08/09/2026) — **Visual Diffing ODG & Gestione Modifiche Giornaliere**: Rilevamento modifiche visuali con baseline e scatti differenziali (`_edit.png`), endpoint dedicato `/api/screenshots/image` per lo streaming sicuro di screenshot locali, centralizzazione motore di sincronizzazione Google Calendar (`src/lib/calendar/odg-sync.ts`), pipeline automatica di auto-sync post-scraping (`/api/odg/auto-sync`), visualizzatore avanzato con zoom e confronto prima/dopo (`odg-modifications-view.tsx`), eliminazione container cron e script runner ridondanti.
 
 ---
 
-## 1. Panoramica Architetturale (v2.0.0)
+## 1. Panoramica Architetturale (v2.1.0)
 
-A partire dalla release **v2.0.0**, l'architettura è stata consolidata da due container distinti a un **singolo container Docker unificato** multi-stage basato su `node:20-bookworm-slim` (Debian). Questo garantisce che la WebApp Next.js e il motore di scraping Python con Playwright Chromium comunichino localmente su `localhost:3000` con latenza zero e senza attriti di rete Docker interna.
+A partire dalla release **v2.0.0** e consolidata con la **v2.1.0**, l'architettura opera in un **singolo container Docker unificato** multi-stage basato su `node:20-bookworm-slim` (Debian). La WebApp Next.js e il motore di scraping Python con Playwright Chromium comunicano localmente su `localhost:3000` con latenza zero.
+
+Nella versione **v2.1.0**, il processo Python `main.py` gestisce la schedulazione autonoma: al termine di ogni estrazione e diffing visuale degli screenshot (`shots.py`), notifica immediatamente la WebApp tramite la nuova route `POST /api/odg/auto-sync` e avvia la sincronizzazione automatica verso Google Drive (`POST /api/screenshots/sync`). Il vecchio container cron e i relativi script runner sono stati rimossi.
 
 ```mermaid
 graph TD
-    subgraph "Unico Container Docker: ScalaScheduler (v2.0.0)"
+    subgraph "Unico Container Docker: ScalaScheduler (v2.1.0)"
         direction TB
         A["WebApp Next.js<br/>(Porta 3000)"]
-        B["ODG Scraper Engine<br/>(Python 3.11 + Playwright Chromium)"]
-        C["Cron Runner Daemon<br/>(Node.js)"]
+        B["ODG Scraper & Visual Diffing Engine<br/>(Python 3.11 + Playwright Chromium)"]
         D["Volumi Locali Montati<br/>/app/config & /data"]
 
-        A <-->|"API Locali Dirette (localhost:3000)"| B
-        C -->|"Sync POST /api/odg/cron"| A
+        B -->|"1. Scraping ERP & Diffing Screenshot"| D
+        B -->|"2. Auto-Sync Google Calendar<br/>POST /api/odg/auto-sync"| A
+        B -->|"3. Auto-Sync Google Drive<br/>POST /api/screenshots/sync"| A
         A --- D
         B --- D
     end
@@ -35,8 +37,8 @@ graph TD
     end
 
     B -->|"Playwright Headless"| E
-    A -->|"Google Calendar API"| F
-    A -->|"Upload Screenshot Stream"| G
+    A -->|"Google Calendar API (odg-sync.ts)"| F
+    A -->|"Upload Screenshot Stream Nativo"| G
     A -->|"Error Report AI"| H
 ```
 
@@ -55,25 +57,34 @@ graph TD
 ## 2. Modulo: ODG Docker Scraper (`odg-docker-scraper/`)
 
 ### 2.1 Tecnologie
-- **Python 3.12** (Docker `python:3.12-slim`)
-- **Dipendenze**: `requests`, `beautifulsoup4`, `lxml`
+- **Python 3.11** (nel container unificato `node:20-bookworm-slim` con virtual environment isolato)
+- **Dipendenze**: `playwright` (Chromium headless), `requests`, `beautifulsoup4`, `lxml`, `Pillow`
 
 ### 2.2 File Principali
 
 | File | Funzione |
 |------|----------|
-| [`main.py`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/odg-docker-scraper/main.py) | Script unico: scraping, parsing, gestione note/asterischi, scheduling |
-| [`drive_uploader.py`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/odg-docker-scraper/drive_uploader.py) | **[NUOVO]** Helper per upload screenshot su Google Drive via API scheduler |
-| [`Dockerfile`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/odg-docker-scraper/Dockerfile) | Container Python con volume `/data` |
-| [`config.json.example`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/odg-docker-scraper/config.json.example) | Esempio configurazione |
+| [`main.py`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/odg-docker-scraper/main.py) | Orchestratore unico: scraping ERP, parsing strutturato, invocazione screenshot diffing, trigger sequenziale API `auto-sync` e `screenshots/sync` |
+| [`shots.py`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/odg-docker-scraper/shots.py) | **[AGGIORNATO v2.1.0]** Visual Diffing & Cattura Screenshot Playwright: hashing contenuti, baseline 00:02 (`YYYY-MM-DD.png`), scatti di modifica (`_edit.png`), watermark timestamp e deduplicazione scatti invariati |
+| [`drive_uploader.py`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/odg-docker-scraper/drive_uploader.py) | Helper per caricamento screenshot locali su Google Drive tramite API di backend |
+| [`Dockerfile`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/odg-docker-scraper/Dockerfile) | Dockerfile stand-alone (opzionale se eseguito scorporato) |
+| [`config.json.example`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/odg-docker-scraper/config.json.example) | Template di configurazione con orari schedules, credenziali e percorsi |
 
-### 2.3 Funzionamento
-1. **Fetch HTML** dalle URL del portale ERP della Scala (`pxf_dspagine_coro.xhtml?pps=0` e `pps=1` — due pagine, una per giorno)
-2. **Parsing** della tabella HTML con BeautifulSoup/lxml
-3. **Estrazione strutturata** di: data, ultimo aggiornamento, righe con destinatario/luogo/orario/descrizione
-4. **Gestione Note a Piè di Pagina (Asterischi)**: rileva note sotto la tabella o nel testo (es. `Note: * 16:15-16:45 Atto Primo - dalle 16:45 Atto Secondo e Terzo`), le ripulisce e le appende deterministicamente (offline, no IA) in coda alla descrizione delle righe contrassegnate da `*` (es. `TRAVIATA * 6° PIANO - 16:15-16:45 Atto Primo - dalle 16:45 Atto Secondo e Terzo`).
-5. **Output**: file JSON strutturato in `/data/odg_structured.json`
-6. **Scheduling interno**: loop con `time.sleep()`, gestione `SIGINT`/`SIGTERM`. Orari configurabili (default: `07:00`, `21:00`)
+### 2.3 Funzionamento & Pipeline Unificata (v2.1.0)
+1. **Fetch & Parsing HTML**: interroga le pagine del portale ERP della Scala (`pxf_dspagine_coro.xhtml?pps=0` e `pps=1`) tramite Playwright/requests.
+2. **Estrazione Dati Strutturata**: estrae data ISO, etichetta giorno, timestamp di aggiornamento e righe tabella (destinatario, luogo normalizzato, orario, descrizione).
+3. **Gestione Note & Asterischi**: associa deterministicamente i testi dei piè di pagina contrassegnati con asterisco `*` direttamente alla descrizione della riga di pertinenza.
+4. **Scrittura JSON**: persiste i dati in `/data/odg_structured.json`.
+5. **Visual Diffing & Shot Management (`shots.py`)**:
+   - Calcola l'hash SHA-256 del contenuto visibile/HTML della pagina (`last_page_hashes`).
+   - Se è il primo ciclo del giorno (o lo scatto baseline manca), genera la baseline: `odg_shots/YYYY-MM/YYYY-MM-DD.png`.
+   - Nei cicli successivi della giornata:
+     - Se l'hash è **diverso** rispetto all'ultimo rilevato, acquisisce un nuovo scatto evidenziando la modifica: `odg_shots/YYYY-MM/YYYY-MM-DD_HHmm_edit.png`.
+     - Se l'hash è **identico**, evita scatti ridondanti risparmiando spazio disco e chiamate Drive API.
+   - Applica a ciascuna immagine un watermark in sovrimpressione con data e ora esatta.
+6. **Auto-Sync Google Calendar**: `main.py` invia una richiesta HTTP `POST http://localhost:3000/api/odg/auto-sync` per sincronizzare immediatamente gli eventi estratti sul calendario Google.
+7. **Sync Google Drive**: `main.py` invia `POST http://localhost:3000/api/screenshots/sync` per caricare i nuovi screenshot su Google Drive tramite Folder-First Diff ad alte prestazioni.
+8. **Scheduling**: gestito internamente in loop con orari configurati in `config.json` (`schedules`, default `00:02`, `07:00`, `11:00`, `15:00`, `19:00`) o via `SIGINT`/`SIGTERM`.
 
 ### 2.4 Schema Output (`odg_structured.json`)
 
@@ -166,60 +177,66 @@ scheduler/
 │   │   ├── globals.css              # CSS con variabili tema
 │   │   ├── config/
 │   │   │   ├── calendars.json       # Configurazione calendari Google (con ownerUserId)
-│   │   │   ├── user.json            # [NUOVO] Database utenti (password in chiaro)
-│   │   │   ├── drive_config.json    # Config Google Drive (URL cartella, salva locale)
+│   │   │   ├── users.json           # Database utenti (password in chiaro, ruoli admin/user)
+│   │   │   ├── drive_config.json    # Config Google Drive (OAuth 2.0 user quota, URL cartella, salva locale)
 │   │   │   └── service-account-key.json  # Chiave SA Google (SEGRETO)
 │   │   ├── api/
-│   │   │   ├── auth/                # [NUOVO] API Autenticazione
-│   │   │   │   ├── login/route.ts   # POST: login con password in chiaro
+│   │   │   ├── auth/                # API Autenticazione
+│   │   │   │   ├── login/route.ts   # POST: login con cookie session auth-token
 │   │   │   │   ├── logout/route.ts  # POST: logout (clear cookie)
 │   │   │   │   ├── me/route.ts      # GET: profilo utente corrente
-│   │   │   │   └── register/route.ts # POST: registrazione nuovo utente
-│   │   │   ├── admin/               # [NUOVO] API Admin
+│   │   │   │   └── register/route.ts # POST: registrazione nuovo utente (stato pending)
+│   │   │   ├── admin/               # API Admin
 │   │   │   │   └── users/
 │   │   │   │       ├── route.ts     # GET/POST: lista utenti / crea utente
-│   │   │   │       └── [id]/route.ts # PUT/DELETE: modifica/elimina utente
+│   │   │   │       └── [id]/route.ts # PUT/DELETE: modifica/approva/elimina utente
 │   │   │   ├── calendars/route.ts   # GET/POST: calendari con ownerUserId e ownerName
 │   │   │   ├── settings/
 │   │   │   │   └── drive/route.ts   # GET/POST: config Google Drive screenshot
 │   │   │   ├── screenshots/
-│   │   │   │   └── upload/route.ts  # POST: upload screenshot → Drive + locale
+│   │   │   │   ├── image/route.ts   # [NUOVO v2.1.0] GET: streaming sicuro screenshot PNG locali
+│   │   │   │   ├── sync/route.ts    # [NUOVO v2.1.0] POST: trigger sincronizzazione screenshot su Drive
+│   │   │   │   └── upload/route.ts  # POST: upload screenshot singolo → Drive + locale
 │   │   │   ├── scraper/             # API Scraper Manager
 │   │   │   │   ├── config/route.ts  # GET/POST: configurazione scraper
 │   │   │   │   ├── run/route.ts     # POST: esecuzione on-demand
 │   │   │   │   └── status/route.ts  # GET: stato scraper
 │   │   │   └── odg/
-│   │   │       ├── push/route.ts    # POST: push manuale ODG → Google Calendar
-│   │   │       └── cron/route.ts    # POST: push automatico (chiamato dal cron)
+│   │   │       ├── auto-sync/route.ts  # [NUOVO v2.1.0] POST: auto-sync automatico chiamato da main.py
+│   │   │       ├── modifications/route.ts # [NUOVO v2.1.0] GET: elenco cronologico modifiche e screenshot
+│   │   │       └── push/route.ts    # POST: push manuale ODG → Google Calendar
 │   │   └── components/
-│   │       ├── odg-tab.tsx          # Tab "ODG"
+│   │       ├── odg-tab.tsx          # Tab "ODG" (integra tabella eventi e registro modifiche)
+│   │       ├── odg-modifications-view.tsx # [NUOVO v2.1.0] Componente visual diffing, zoom e modale
 │   │       ├── importa-calendario-tab.tsx  # Tab "Importa Calendario"
 │   │       ├── impostazioni-tab.tsx # Tab "Impostazioni" (Admin: hub calendari + Drive)
 │   │       ├── tabella-calendario.tsx  # Tabella eventi editabile
 │   │       ├── export-controls.tsx  # Controlli esportazione (select cal + pulsante)
-│   │       ├── admin/               # [NUOVO] Componenti Admin
-│   │       │   ├── gestione-utenti-tab.tsx  # Tab "Utenti" (solo gestione account)
+│   │       ├── admin/               # Componenti Admin
+│   │       │   ├── gestione-utenti-tab.tsx  # Tab "Utenti" (gestione account e approvazioni)
 │   │       │   └── scraper-manager-tab.tsx  # Tab "Scraper"
 │   │       └── importa-calendario/
 │   │           └── upload-pdf.tsx   # Upload + trigger parsing PDF
 │   ├── components/ui/              # 35 componenti shadcn/ui
 │   ├── contexts/
-│   │   ├── auth-context.tsx         # [NUOVO] Provider autenticazione + RBAC + isCalendarAllowed
+│   │   ├── auth-context.tsx         # Provider autenticazione + RBAC + isCalendarAllowed
 │   │   ├── settings-context.tsx     # Provider impostazioni app
 │   │   └── calendar-context.tsx     # Provider gestione calendari
 │   ├── hooks/
 │   │   ├── use-toast.ts            # Hook toast notifications
 │   │   └── use-mobile.tsx          # Hook responsive
+│   ├── version.ts                  # [v2.1.0] Costanti APP_VERSION, APP_BUILD_DATE, APP_CHANGELOG
 │   └── lib/
 │       ├── types.ts                # Tipi TypeScript condivisi (+ ownerUserId, UserProfile, UserRole)
 │       ├── utils.ts                # cn() per classi CSS
 │       ├── constants.ts            # Costanti (TIMEZONE)
-│       ├── auth/                    # [NUOVO] Modulo Autenticazione
-│       │   └── users-store.ts      # Lettura/scrittura user.json, password in chiaro
+│       ├── auth/                    # Modulo Autenticazione
+│       │   └── users-store.ts      # Lettura/scrittura users.json
 │       ├── calendar/
-│       │   └── export-events.ts    # Logica esportazione PDF → Google Cal
+│       │   ├── export-events.ts    # Logica esportazione PDF → Google Cal
+│       │   └── odg-sync.ts         # [NUOVO v2.1.0] Motore unificato e DRY per sync ODG → Google Cal
 │       ├── drive/
-│       │   └── google-drive.ts     # Integrazione Google Drive (auth, upload, verify, diagnostica dettagliata)
+│       │   └── google-drive.ts     # Integrazione Google Drive (auth, upload stream nativo, Folder-First Diff)
 │       ├── pdf/
 │       │   └── estraiProgrammaCoro.ts  # Parser PDF (client-side)
 │       ├── settings/
@@ -401,52 +418,47 @@ interface DriveConfig {
 ### 3.6 API Routes (Server-Side)
 
 #### `POST /api/calendars`
-- **File**: [`api/calendars/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/api/calendars/route.ts)
-- **Funzione**: Salva la configurazione dei calendari su file (`src/app/config/calendars.json`)
+- **File**: [`src/app/api/calendars/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/calendars/route.ts)
+- **Funzione**: Salva la configurazione dei calendari su file (`/app/config/calendars.json` o fallback locale)
 - **Input**: `ImpostazioniCalendario[]`
 - **Output**: `{ ok: true }` / `{ ok: false, error: string }`
 
 #### `POST /api/odg/push`
-- **File**: [`route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/route.ts) (root, duplicato in `push/`)
-- **Funzione**: Push manuale ODG → Google Calendar
-- **Input**: `{ calendarId: string, dryRun?: boolean }`
-- **Logica di sync**:
-  1. Legge `odg_structured.json`
-  2. Per ogni riga, ricerca orari con fallback su 8 livelli (strutturato → raw → descrizione → title → details → concatenato → provenance → raw_line)
-  3. Genera UID univoco per evento: `odg|<data>|<start>|<end>|<desc>|<recipient>|<place>`
-  4. Genera content hash SHA1 per confronto
-  5. Recupera eventi esistenti dal calendario Google per le date coinvolte
-  6. Esegue upsert intelligente: insert/update/skip/delete
-  7. Rimuove duplicati e eventi non più presenti nel sorgente
+- **File**: [`src/app/api/odg/push/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/odg/push/route.ts)
+- **Funzione**: Push manuale ODG → Google Calendar avviato dall'interfaccia utente
+- **Input**: `{ calendarId?: string, dryRun?: boolean }`
+- **Logica**: Invoca il motore centralizzato `runOdgCalendarSync()` definito in [`src/lib/calendar/odg-sync.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/lib/calendar/odg-sync.ts)
+- **Output**: `{ ok: true, dryRun, summary: { scanned, inserted, updated, removed, unchanged, totalValid }, changes: [...] }`
 
-#### `POST /api/odg/auto-sync`
-- **File**: [`auto-sync/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/odg/auto-sync/route.ts)
-- **Funzione**: Esegue la sincronizzazione automatica su Google Calendar ODG in sequenza dopo lo scraping programmato
-- **Dettagli**: Richiama il modulo unificato `odg-sync.ts`, risolve automaticamente il calendario ODG predefinito da `calendars.json` e legge `odg_structured.json` dai percorsi candidati (`/data`, `public/`) senza richiedere parametri obbligatori nel payload
+#### `POST /api/odg/auto-sync` — **[NUOVO v2.1.0]**
+- **File**: [`src/app/api/odg/auto-sync/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/odg/auto-sync/route.ts)
+- **Funzione**: Esegue la sincronizzazione automatica su Google Calendar ODG in sequenza immediata dopo lo scraping programmato del demone Python `main.py`
+- **Dettagli**: Richiama `runOdgCalendarSync()`, individua in autonomia il calendario ODG predefinito da `calendars.json`, legge `odg_structured.json` dai percorsi candidati (`/data`, `public/`) e produce log dettagliati su file.
+- **Supporto GET**: Endpoint informativo di salute servizio.
 
-#### `GET /api/odg/modifications` — **[NUOVO]**
-- **File**: [`api/odg/modifications/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/odg/modifications/route.ts)
-- **Funzione**: Restituisce lo storico cronologico di tutte le modifiche rilevate durante la giornata (screenshot aggiuntivi `_edit.png`) e la baseline iniziale
-- **Input Query**: `?date=YYYY-MM-DD` (opzionale, default tutte le modifiche o data corrente)
+#### `GET /api/odg/modifications` — **[NUOVO v2.1.0]**
+- **File**: [`src/app/api/odg/modifications/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/odg/modifications/route.ts)
+- **Funzione**: Restituisce lo storico cronologico di tutte le modifiche rilevate durante la giornata (screenshot aggiuntivi `_edit.png`) e la baseline iniziale delle 00:02
+- **Input Query**: `?date=YYYY-MM-DD` (opzionale, default tutte le modifiche o data odierna)
 - **Output**: `{ ok, filterDate, total, editsCount, baselinesCount, availableDates, modifications: [...] }`
 
-#### `GET /api/screenshots/image` — **[NUOVO]**
-- **File**: [`api/screenshots/image/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/screenshots/image/route.ts)
-- **Funzione**: Serve in streaming sicuro le immagini degli screenshot (`image/png`) archiviate nei percorsi locali (`/data/odg_shots`, `public/odg_shots`) per consentire la visualizzazione e l'ingrandimento nella WebApp
+#### `GET /api/screenshots/image` — **[NUOVO v2.1.0]**
+- **File**: [`src/app/api/screenshots/image/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/screenshots/image/route.ts)
+- **Funzione**: Serve in streaming sicuro le immagini degli screenshot (`image/png`) archiviate nei percorsi locali (`/data/odg_shots`, `public/odg_shots`) per consentire anteprime, confronto differenziale e zoom nella WebApp con protezione da path-traversal.
 
-#### `GET/POST /api/settings/drive` — **[NUOVO]**
-- **File**: [`api/settings/drive/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/settings/drive/route.ts)
+#### `POST /api/screenshots/sync` — **[NUOVO v2.1.0]**
+- **File**: [`src/app/api/screenshots/sync/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/screenshots/sync/route.ts)
+- **Funzione**: Avvia la sincronizzazione automatica a due fasi (Folder-First Diff) degli screenshot locali su Google Drive, chiamata in sequenza dal demone Python `main.py` al termine della sessione di scraping.
+
+#### `GET/POST /api/settings/drive`
+- **File**: [`src/app/api/settings/drive/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/settings/drive/route.ts)
 - **GET**: Legge la configurazione Drive corrente da `drive_config.json`
-- **POST**: Salva la configurazione e opzionalmente verifica l'accesso alla cartella
-- **Input POST**: `{ googleDriveFolderUrl: string, salvaAncheInLocale: boolean, testConnection?: boolean }`
+- **POST**: Salva la configurazione e opzionalmente verifica l'accesso alla cartella con test di connettività
 - **Output POST**: `{ ok, config: DriveConfig, testResult?: { ok, folderName?, error? } }`
 
-#### `POST /api/screenshots/upload` — **[NUOVO]**
-- **File**: [`api/screenshots/upload/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/screenshots/upload/route.ts)
-- **Funzione**: Riceve uno screenshot (FormData con `file` e `filename`), lo salva su Google Drive e opzionalmente in locale
-- **Logica**:
-  1. Se `salvaAncheInLocale = true` → salva in `public/odg_shots/`
-  2. Se `googleDriveFolderId` configurato → upload su Google Drive via Service Account
+#### `POST /api/screenshots/upload`
+- **File**: [`src/app/api/screenshots/upload/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/screenshots/upload/route.ts)
+- **Funzione**: Riceve uno screenshot singolo (FormData con `file` e `filename`), lo salva su Google Drive e opzionalmente in locale
 - **Output**: `{ ok, fileName, savedLocally, localPath?, driveResult: { ok, fileId?, webViewLink?, error? } }`
 
 #### `GET/POST /api/scraper/config` — **[NUOVO]**
@@ -742,17 +754,11 @@ Gli orari sono configurabili in tempo reale dall'amministratore nella WebApp e s
 
 ## 6. Criticità e Debito Tecnico
 
-### 6.1 Duplicazione Massiva di Codice
+### 6.1 ~~Duplicazione Massiva di Codice~~ ✅ RISOLTO (v2.1.0)
+Tutta la logica di sincronizzazione ODG (ricerca orari a 8 livelli, hashing SHA-1, UID deterministico, riconciliazione differenziale insert/update/delete e reportistica) è stata centralizzata ed estratta in:
+- [`scheduler/src/lib/calendar/odg-sync.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/lib/calendar/odg-sync.ts)
 
-> [!CAUTION]
-> **Problema critico**: la logica di sincronizzazione ODG → Google Calendar è **duplicata 3 volte** in file quasi identici:
-> 1. [`scheduler/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/route.ts) (root)
-> 2. [`scheduler/cron/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/cron/route.ts)
-> 3. Probabilmente anche in `app/api/odg/push/route.ts` e `app/api/odg/cron/route.ts`
->
-> Le funzioni `getEventTimes()`, `generateEventUid()`, `generateContentHash()`, `runSync()` sono copiate identiche con lievi variazioni.
-
-**Rimedio suggerito**: estrarre la logica comune in `lib/odg/sync.ts` e importarla in entrambe le route.
+Sia il push manuale con simulazione Dry Run ([`src/app/api/odg/push/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/odg/push/route.ts)) sia la nuova sincronizzazione automatica post-scraping ([`src/app/api/odg/auto-sync/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/odg/auto-sync/route.ts)) riutilizzano in modo trasparente e DRY la medesima funzione `runOdgCalendarSync()`. Le vecchie route ridondanti (`route.ts`, `cron/route.ts`) sono state eliminate.
 
 ### 6.2 `scheduler_test/` — ⚠️ DEPRECATA, DA RIMUOVERE
 - Contiene gli stessi file di `scheduler/` con variazioni minime
@@ -919,52 +925,60 @@ docker-compose up --build
 | `src/contexts/auth-context.tsx` | **[NUOVO]** Provider autenticazione + RBAC + `isCalendarAllowed()` |
 | `src/contexts/settings-context.tsx` | React context: impostazioni app |
 | `src/contexts/calendar-context.tsx` | React context: CRUD calendari (save via API) |
-| `src/app/components/admin/gestione-utenti-tab.tsx` | **[NUOVO]** Tab Utenti: approvazione, ruolo, stato, password (no calendari) |
-| `src/app/components/admin/scraper-manager-tab.tsx` | **[NUOVO]** Tab Scraper: dashboard stato, config, esecuzione on-demand |
-| `src/app/api/auth/login/route.ts` | **[NUOVO]** API POST: login con password in chiaro |
-| `src/app/api/auth/register/route.ts` | **[NUOVO]** API POST: registrazione utente (status pending) |
-| `src/app/api/auth/me/route.ts` | **[NUOVO]** API GET: profilo utente da cookie |
-| `src/app/api/auth/logout/route.ts` | **[NUOVO]** API POST: logout (clear cookie) |
-| `src/app/api/admin/users/route.ts` | **[NUOVO]** API GET/POST: lista/creazione utenti |
-| `src/app/api/admin/users/[id]/route.ts` | **[NUOVO]** API PUT/DELETE: modifica/elimina utente |
+| `src/app/components/odg-tab.tsx` | Tab ODG: visualizzazione dati strutturati, push manuale e vista modifiche |
+| `src/app/components/odg-modifications-view.tsx` | **[NUOVO v2.1.0]** Vista Registro Modifiche, confronto visuale prima/dopo, dialog modale zoom |
+| `src/app/components/admin/gestione-utenti-tab.tsx` | Tab Utenti: approvazione, ruolo, stato, password (no calendari) |
+| `src/app/components/admin/scraper-manager-tab.tsx` | Tab Scraper: dashboard stato, config, esecuzione on-demand |
+| `src/app/api/auth/login/route.ts` | API POST: login con cookie session auth-token |
+| `src/app/api/auth/register/route.ts` | API POST: registrazione utente (status pending) |
+| `src/app/api/auth/me/route.ts` | API GET: profilo utente da cookie |
+| `src/app/api/auth/logout/route.ts` | API POST: logout (clear cookie) |
+| `src/app/api/admin/users/route.ts` | API GET/POST: lista/creazione utenti |
+| `src/app/api/admin/users/[id]/route.ts` | API PUT/DELETE: modifica/elimina utente |
 | `src/app/api/calendars/route.ts` | API GET/POST: calendari con ownerUserId e risoluzione ownerName |
-| `src/app/api/odg/push/route.ts` | API POST: push manuale ODG → Google Cal |
-| `src/app/api/odg/cron/route.ts` | API POST: push automatico ODG → Google Cal |
-| `src/app/api/settings/drive/route.ts` | API GET/POST: config Google Drive screenshot |
+| `src/app/api/odg/push/route.ts` | API POST: push manuale ODG → Google Cal (usa `odg-sync.ts`) |
+| `src/app/api/odg/auto-sync/route.ts` | **[NUOVO v2.1.0]** API POST: push automatico ODG → Google Cal (chiamato da `main.py`) |
+| `src/app/api/odg/modifications/route.ts` | **[NUOVO v2.1.0]** API GET: storico cronologico modifiche e screenshot del giorno |
+| `src/app/api/screenshots/image/route.ts` | **[NUOVO v2.1.0]** API GET: streaming sicuro screenshot locali PNG |
+| `src/app/api/screenshots/sync/route.ts` | **[NUOVO v2.1.0]** API POST: trigger sincronizzazione screenshot su Drive |
 | `src/app/api/screenshots/upload/route.ts` | API POST: upload screenshot → Drive + locale |
-| `src/app/config/drive_config.json` | Config persistita Google Drive |
-| `src/app/config/user.json` | **[NUOVO]** Database utenti (password in chiaro) |
+| `src/app/api/settings/drive/route.ts` | API GET/POST: config Google Drive screenshot |
+| `src/lib/calendar/odg-sync.ts` | **[NUOVO v2.1.0]** Motore unificato e DRY per sync Google Calendar (orari, UID, hash, upsert) |
+| `src/version.ts` | **[v2.1.0]** Costanti esportate di versione app, data e changelog |
+| `src/app/config/drive_config.json` | Config persistita Google Drive (OAuth 2.0 user quota) |
+| `src/app/config/users.json` | Database utenti (password in chiaro) |
 | `src/ai/genkit.ts` | Config Genkit (Gemini 2.5 Flash) |
 | `src/ai/flows/generate-export-error-report.ts` | Flow AI per report errori |
 
-### Infrastruttura & Deployment Unificato (v2.0.0)
+### Infrastruttura & Deployment Unificato (v2.1.0)
 
 | File | Funzione |
 |------|----------|
-| `Dockerfile` (root) | **[UNIFICATO v2.0.0]** Multi-stage build (`node:20-bookworm-slim`) che compila Next.js standalone, installa Python 3.11 con venv isolato, librerie grafiche e Playwright Chromium headless |
-| `docker-compose.yml` (root) | **[UNIFICATO v2.0.0]** Servizio singolo `scala-scheduler` su porta `3010:3000` con volumi `/app/config` e `/data` |
-| `scheduler/entrypoint-wrapper.sh` | Wrapper di boot: timezone `Europe/Rome`, avvio demone `main.py` (scraper + pianificatore sequenziale), e avvio server Next.js |
+| `Dockerfile` (root) | Multi-stage build (`node:20-bookworm-slim`) che compila Next.js standalone, installa Python 3.11 con venv isolato, librerie grafiche e Playwright Chromium headless |
+| `docker-compose.yml` (root) | Servizio singolo `scala-scheduler` su porta `3010:3000` con volumi `/app/config` e `/data` |
+| `scheduler/entrypoint-wrapper.sh` | Wrapper di boot: timezone `Europe/Rome`, avvio demone `main.py` (scraper + visual diffing + auto-sync sequenziale), e avvio server Next.js |
 | `version.json` (root) | File JSON di tracciamento versione software allineato tra build e runtime |
 
 ---
 
-## 11. Ambiente di Deploy (v2.0.0 Single-Container)
+## 11. Ambiente di Deploy (v2.1.0 Single-Container)
 
 Il sistema è deployato tramite **Portainer (Stack da Git Repository)** su server Linux/NAS in un **singolo container unificato**:
 
 ```
 NAS / Server Locale (Portainer)
-└── Docker Container Unico: ScalaScheduler (v2.0.0)
+└── Docker Container Unico: ScalaScheduler (v2.1.0)
     ├── WebApp Next.js 15 (Node.js 20 Standalone — porta 3000)
     ├── ODG Scraper & Auto-Sync Engine (Python 3.11 + Playwright Chromium Headless)
     ├── Volume Host 1: /srv/docker_conf/configs/ScalaScheduler/config -> /app/config
     └── Volume Host 2: /srv/docker_conf/configs/ScalaScheduler/odg-scraper/config -> /data
 ```
 
-### Vantaggi dell'Architettura v2.0.0:
+### Vantaggi dell'Architettura v2.1.0:
 1. **Latenza di Rete Zero**: Scraper e WebApp comunicano su `http://localhost:3000` senza passare da bridge o DNS Docker.
 2. **Zero Conflitti File/Permessi**: Entrambi i processi condividono direttamente il filesystem `/data` e `/app/config`.
-3. **Aggiornamenti Atomici**: Un solo deploy con "Re-pull image and redeploy" su Portainer aggiorna contemporaneamente frontend, backend e scraper.
+3. **Pipeline Automatica Integrata**: Scraping, diffing visivo, auto-sync Google Calendar e sync Drive avvengono in sequenza automatica senza container cron esterni.
+4. **Aggiornamenti Atomici**: Un solo deploy con "Re-pull image and redeploy" su Portainer aggiorna contemporaneamente frontend, backend e scraper.
 
 ---
 
@@ -976,7 +990,7 @@ NAS / Server Locale (Portainer)
    - Invio giornaliero del programma formattato
    - Alert quando un ODG viene aggiornato dalla Scala
    - Comandi bot: `/oggi`, `/domani`, `/settimana`, `/prossime`
-   - Punto di integrazione: dopo il `runSync()` in `cron/route.ts`, inviare un messaggio Telegram con il riepilogo
+   - Punto di integrazione: all'interno di `src/lib/calendar/odg-sync.ts` o come hook al termine di `POST /api/odg/auto-sync`
    - Libreria suggerita: `node-telegram-bot-api` o `telegraf`
 
 2. **Integrazione Outlook/Microsoft 365** — Supporto per calendari Outlook oltre a Google Calendar
@@ -992,7 +1006,7 @@ NAS / Server Locale (Portainer)
 
 ### 12.2 Priorità Alta — Debito Tecnico
 
-4. **Eliminare duplicazione codice sync** — Estrarre `runSync()`, `getEventTimes()`, etc. in `lib/odg/sync.ts`
+4. ~~**Eliminare duplicazione codice sync**~~ ✅ **RISOLTO (v2.1.0)** — Centralizzato in `src/lib/calendar/odg-sync.ts`
 5. **Consolidare la struttura directory** — Decidere se usare `src/app/` o root-level e rimuovere i duplicati
 6. **Aggiungere `.env` al `.gitignore`** e ruotare le chiavi API esposte
 7. **Rimuovere `Docker Istruzioni.txt`** dalla repo e ruotare le password DockerHub
