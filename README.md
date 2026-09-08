@@ -27,6 +27,8 @@ L'ecosistema (WebApp Next.js + Motore Scraper Python con Playwright Chromium) è
    - **Visual Diffing & Rilevamento Modifiche**:
      - Lo scraper scatta la baseline iniziale della giornata (`YYYY-MM-DD.png`) alle 00:02.
      - Nei cicli successivi calcola l'hash dei contenuti: se la pagina subisce variazioni, cattura lo scatto modificato (`YYYY-MM-DD_HHmm_edit.png`); se identica, evita scatti ridondanti.
+   - **Controllo Ogni 5 Minuti con Push Immediato**:
+     - Oltre agli orari pianificati, se durante il controllo ogni 5 minuti viene rilevata una qualsiasi modifica ai dati o agli orari delle pagine ODG, l'applicazione aggiorna immediatamente il file schematico (`odg_structured.json`), scatta la modifica visiva ed esegue **istantaneamente il push automatico su Google Calendar ODG** senza attendere la schedulazione successiva.
    - **Viewer Avanzato**:
      - Dialog modale a schermo intero con zoom e dettagli temporali.
      - Confronto visivo prima/dopo tra baseline e scatto modificato.
@@ -40,7 +42,7 @@ L'ecosistema (WebApp Next.js + Motore Scraper Python con Playwright Chromium) è
 4. **Architettura Unificata a Singolo Container & Auto-Sync** — **[AGGIORNATO v2.1.0]**:
    - WebApp e Scraper Python convivono nello stesso container (`node:20-bookworm-slim`).
    - Comunicazione diretta su `localhost:3000` a latenza zero.
-   - Il demone Python gestisce gli orari pianificati ed esegue la sequenza: scraping ERP ➔ screenshot diffing ➔ push automatico su Google Calendar (`POST /api/odg/auto-sync`) ➔ sincronizzazione Drive (`POST /api/screenshots/sync`).
+   - Il demone Python gestisce sia gli orari pianificati sia i controlli periodici ogni 5 minuti ed esegue la sequenza: scraping ERP ➔ screenshot diffing ➔ push automatico su Google Calendar (`POST /api/odg/auto-sync`) ➔ sincronizzazione Drive (`POST /api/screenshots/sync`).
    - Eliminato completamente il container cron separato e rimossi script ridondanti.
 
 5. **Archiviazione Screenshot Google Drive ad Alte Prestazioni**:

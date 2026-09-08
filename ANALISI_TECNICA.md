@@ -84,7 +84,9 @@ graph TD
    - Applica a ciascuna immagine un watermark in sovrimpressione con data e ora esatta.
 6. **Auto-Sync Google Calendar**: `main.py` invia una richiesta HTTP `POST http://localhost:3000/api/odg/auto-sync` per sincronizzare immediatamente gli eventi estratti sul calendario Google.
 7. **Sync Google Drive**: `main.py` invia `POST http://localhost:3000/api/screenshots/sync` per caricare i nuovi screenshot su Google Drive tramite Folder-First Diff ad alte prestazioni.
-8. **Scheduling**: gestito internamente in loop con orari configurati in `config.json` (`schedules`, default `00:02`, `07:00`, `11:00`, `15:00`, `19:00`) o via `SIGINT`/`SIGTERM`.
+8. **Scheduling & Controllo Modifiche 5 Minuti**:
+   - **Orari pianificati (`schedules`)**: esegue l'intera pipeline di scraping, analisi, diffing e push calendar agli orari impostati da interfaccia (default `07:00`, `21:00`).
+   - **Controllo ogni 5 minuti con Push Immediato**: ad ogni iterazione di 5 minuti, confronta l'hash canonico della pagina (`canonical_hash`). Se viene rilevata una modifica nei dati o negli orari, esegue istantaneamente l'analisi, aggiorna il file schematico `/data/odg_structured.json` e lancia **immediatamente il push su Google Calendar ODG** e la sincronizzazione Drive, senza attendere l'orario programmato successivo.
 
 ### 2.4 Schema Output (`odg_structured.json`)
 

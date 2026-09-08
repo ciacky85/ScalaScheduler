@@ -11,8 +11,9 @@ Motore di estrazione dati, acquisizione screenshot, rilevamento modifiche visual
     - Hashing HTML/testo delle pagine (`last_page_hashes`): se il contenuto varia durante i successivi cicli diurni, cattura lo screenshot di revisione con suffisso `_edit.png` (`YYYY-MM-DD_HHmm_edit.png`).
     - Salta gli scatti ridondanti se il contenuto della pagina è identico allo scatto precedente.
     - Watermark orario e timestamp applicato a ciascuno screenshot.
-  - **Pipeline di Auto-Sync Locale**:
-    - Trigger sequenziale automatico: Scraping ➔ Diffing Screenshot ➔ Invio sync Google Calendar (`POST http://localhost:3000/api/odg/auto-sync`) ➔ Upload / verifica Google Drive (`POST http://localhost:3000/api/screenshots/sync`).
+  - **Pipeline di Auto-Sync Locale & Controllo Differenze Ogni 5 Minuti**:
+    - Trigger sequenziale programmato (orari da interfaccia, es. 07:00, 21:00): Scraping ➔ Diffing Screenshot ➔ Invio sync Google Calendar (`POST http://localhost:3000/api/odg/auto-sync`) ➔ Sync Google Drive (`POST http://localhost:3000/api/screenshots/sync`).
+    - **Controllo ogni 5 min con Push Immediato**: durante la verifica periodica dei 5 minuti, se l'hash canonico rileva una qualsiasi modifica, esegue istantaneamente l'intero ciclo (analisi pagina, scatto differenziale `_edit.png`, trascrizione su `odg_structured.json` e **push immediato su Google Calendar ODG**).
 - **Integrazione**: Questo modulo è eseguito direttamente nel container unificato `ScalaScheduler` in ascolto locale su `http://localhost:3000`.
 
 Per dettagli operativi e di deploy, consultare il [`README.md`](../README.md) alla radice del progetto.

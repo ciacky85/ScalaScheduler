@@ -325,9 +325,10 @@ def resolve_url_name(raw_item: any, idx: int) -> tuple[str, str]:
 
     return url, name
 
-def run_once(cfg: dict):
+def run_once(cfg: dict) -> bool:
     pages = []
     raw_urls = cfg.get("urls", [])
+    has_changes = False
     
     shots_cfg = cfg.get("screenshots", {})
     if isinstance(shots_cfg, dict):
@@ -342,6 +343,18 @@ def run_once(cfg: dict):
         raw_str = "/data" + raw_str[len("/app/public"):]
     shots_dir = Path(raw_str)
 
+    # Leggi state.json precedente per verificare se ci sono differenze nei dati
+    state_path = shots_dir / "state.json"
+    state_data = {}
+    if state_path.exists():
+        try:
+            with open(state_path, "r", encoding="utf-8") as sf:
+                state_data = json.load(sf)
+        except Exception:
+            state_data = {}
+    last_hashes = state_data.get("last", {})
+    today_str = datetime.now(TZ).strftime("%Y-%m-%d")
+
     log(f"Inizio scraping (enable_screenshots={enable_shots}, dir={shots_dir}, urls={len(raw_urls)})")
 
     for idx, raw_item in enumerate(raw_urls):
@@ -354,11 +367,18 @@ def run_once(cfg: dict):
             page_data = extract_page(url)
             pages.append(page_data)
 
+            c_hash = canonical_hash(page_data)
+            key = f"{today_str}:{name}"
+            prev_hash = last_hashes.get(key)
+
+            if prev_hash is not None and prev_hash != c_hash:
+                has_changes = True
+                log(f"🚨 RILEVATA MODIFICA nella pagina [{name}]! (Hash precedente: {prev_hash[:8]}..., Nuovo: {c_hash[:8]}...)")
+
             # Esegui la cattura dello screenshot (baseline / edit)
             if enable_shots:
                 try:
-                    c_hash = canonical_hash(page_data)
-                    maybe_capture(
+                    shot_res = maybe_capture(
                         url=url,
                         url_name=name,
                         output_dir=shots_dir,
@@ -366,6 +386,8 @@ def run_once(cfg: dict):
                         full_page=True,
                         tzname=TZ_NAME,
                     )
+                    if shot_res and "_edit" in str(shot_res):
+                        has_changes = True
                 except Exception as shot_err:
                     log(f"WARNING screenshot [{name}]: {shot_err}")
 
@@ -402,6 +424,8 @@ def run_once(cfg: dict):
             except Exception as pe:
                 log(f"WARNING copia JSON su {pub_p}: {pe}")
 
+    return has_changes
+
 DEFAULT_SCHEDULER_URL = os.environ.get("SCHEDULER_API_URL", "http://localhost:3000")
 
 def trigger_calendar_push(scheduler_url: str = DEFAULT_SCHEDULER_URL) -> bool:
@@ -437,14 +461,33 @@ def trigger_calendar_push(scheduler_url: str = DEFAULT_SCHEDULER_URL) -> bool:
     log("WARNING: Impossibile completare il push su Google Calendar dopo i tentativi previsti.")
     return False
 
+def trigger_drive_sync(scheduler_url: str = DEFAULT_SCHEDULER_URL) -> bool:
+    """
+    Invia la richiesta di sincronizzazione screenshot verso Google Drive a ScalaScheduler.
+    """
+    url = f"{scheduler_url.rstrip('/')}/api/screenshots/sync"
+    try:
+        res = requests.post(url, json={}, timeout=60)
+        if res.status_code == 200:
+            log("Sincronizzazione screenshot su Google Drive avviata con successo.")
+            return True
+        else:
+            log(f"WARNING: Risposta {res.status_code} da {url}: {res.text[:200]}")
+    except Exception as e:
+        log(f"WARNING: Impossibile contattare {url} per sync Drive: {e}")
+    return False
+
 def run_pipeline(cfg):
     """
     Esegue la sequenza completa:
     1. Analisi pagine ODG e salvataggio file dati/screenshot
     2. Push automatico su Google Calendar ODG
+    3. Sincronizzazione screenshot su Google Drive
     """
-    run_once(cfg)
+    has_changes = run_once(cfg)
     trigger_calendar_push()
+    trigger_drive_sync()
+    return has_changes
 
 def seconds_until_next(now, hhmm_list):
     today = now.date()
@@ -485,7 +528,7 @@ def main():
     last_schedule_minute = ""
     last_baseline_date = ""
 
-    log("Demone ODG Scraper & Screenshot attivo (Verifica diff: ogni 5min | Baseline: 00:02 | Push Calendar: orari schedules)")
+    log("Demone ODG Scraper & Screenshot attivo (Controllo modifiche: ogni 5min con push immediato | Baseline: 00:02 | Push programmato: orari schedules)")
 
     while not stop:
         try:
@@ -530,13 +573,21 @@ def main():
                 last_schedule_minute = minute_key
                 last_poll_time = time.time()
 
-            # 4. Verifica differenze periodica (default ogni 5 minuti = 300s)
+            # 4. Verifica periodica differenze (default ogni 5 minuti = 300s)
+            # Se viene rilevato un cambiamento, esegue immediatamente analisi, trascrizione e push su Google Calendar ODG
             poll_seconds = max(60, int(cfg.get("poll_minutes", 5)) * 60)
             if time.time() - last_poll_time >= poll_seconds:
                 log(f"Verifica periodica differenze (cadenza: {poll_seconds//60} min)...")
                 cfg = load_config()
-                run_once(cfg)
+                has_changes = run_once(cfg)
                 last_poll_time = time.time()
+                if has_changes:
+                    log("🚨 MODIFICA RILEVATA durante il controllo ogni 5 minuti!")
+                    log("Analisi e trascrizione su file schematico completate. Eseguo il push immediato su Google Calendar ODG...")
+                    trigger_calendar_push()
+                    trigger_drive_sync()
+                else:
+                    log("Nessuna variazione rilevata nei dati ODG (pagine invariate).")
 
             time.sleep(2)
         except Exception as e:
