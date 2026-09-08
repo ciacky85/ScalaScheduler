@@ -318,12 +318,17 @@ La scheda include due sotto-viste selezionabili tramite tabs interne:
    - Supporta **Dry Run** (simulazione senza modifiche al calendario Google)
    - Mostra riepilogo dettagliato del sync: scansionati, inseriti, aggiornati, rimossi, invariati
 
-2. **Sotto-scheda "Modifiche Rilevate & Screenshot"** — **[NUOVO]**:
-   - Badge con conteggio in tempo reale delle modifiche rilevate oggi
-   - **Registro Cronologico**: elenco ordinato di tutte le volte in cui durante la giornata sono state riscontrate variazioni nel testo/tabella delle pagine ODG della Scala
-   - Per ciascuna modifica: ora esatta del rilevamento, pagina (`odg_0` / `odg_1`), anteprima screenshot, visualizzazione ingrandita in modale, pulsante per visualizzare il file su Google Drive e download del PNG
-   - Sezione dedicata alla **Baseline Iniziale delle 00:02** per confronto visivo immediato
-   - Selettore data per consultare lo storico dei giorni precedenti (alimentato da `modifications.json`)
+2. **Sotto-scheda "Modifiche Rilevate & Screenshot"** (e sotto-scheda dedicata in Scraper Manager) — **[AGGIORNATO v2.1.0]**:
+   - **Calendario Interattivo Mensile**:
+     - Navigazione mese per mese con pulsante "Oggi" e supporto localizzato in italiano.
+     - **Segno di riconoscimento visivo per giorni con modifiche**: ogni cella del calendario che contiene screenshot di modifica (`_edit.png`) presenta un bordo ambrato ben visibile, sfondo evidenziato e un badge con contatore (`+{editsCount}`) e icona di avviso per consentire all'utente di individuare a colpo d'occhio i giorni in cui sono intervenute variazioni al programma.
+     - Indicatore verde discreto per i giorni con sola baseline regolare (invariata).
+     - **Accesso rapido "Giorni con Variazioni Rilevate"**: elenco compatto di scorciatoie per saltare istantaneamente con un click a qualsiasi data che presenti modifiche.
+   - **Visualizzatore Dettagli Giornata**:
+     - Elenco cronologico degli screenshot di modifica con orario esatto, pagina e anteprima.
+     - **Confronto Diretto (Baseline vs Modifica)**: finestra modale affiancata per vedere a colpo d'occhio le differenze tra lo scatto delle 00:02 e la modifica rilevata.
+     - **Dialog a Schermo Intero con Zoom**: controlli di zoom in / zoom out, reset al 100%, visualizzazione ad alta definizione, apertura su Google Drive e download diretto del PNG.
+     - Sezione dedicata alla **Baseline Iniziale delle 00:02**.
 
 #### Tab 3: "Impostazioni" (Solo Admin)
 - **Service Account**: mostra email del service account da aggiungere con permessi di scrittura a Google Calendar e con ruolo **Editor** alla cartella di Google Drive.

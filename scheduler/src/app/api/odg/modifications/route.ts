@@ -113,24 +113,40 @@ export async function GET(request: Request) {
       }
     }
 
-    // 3. Filtra per data se specificato
+    // 3. Calcola il riepilogo per data (datesSummary) su tutti gli elementi rilevati
+    const datesSummary: Record<string, { total: number; editsCount: number; baselinesCount: number; hasEdits: boolean }> = {};
+    for (const it of items) {
+      if (!it.date) continue;
+      if (!datesSummary[it.date]) {
+        datesSummary[it.date] = { total: 0, editsCount: 0, baselinesCount: 0, hasEdits: false };
+      }
+      datesSummary[it.date].total += 1;
+      if (it.type === 'edit') {
+        datesSummary[it.date].editsCount += 1;
+        datesSummary[it.date].hasEdits = true;
+      } else if (it.type === 'baseline') {
+        datesSummary[it.date].baselinesCount += 1;
+      }
+    }
+
+    // 4. Filtra per data se specificato
     let filtered = items;
     if (filterDate) {
       filtered = items.filter(it => it.date === filterDate);
     }
 
-    // 4. Ordina per data e ora decrescente (le modifiche più recenti in alto)
+    // 5. Ordina per data e ora decrescente (le modifiche più recenti in alto)
     filtered.sort((a, b) => {
       const ta = new Date(a.timestamp).getTime();
       const tb = new Date(b.timestamp).getTime();
       return tb - ta;
     });
 
-    // Calcola statistiche per la data o complessive
+    // Calcola statistiche per la data filtrata
     const editsCount = filtered.filter(it => it.type === 'edit').length;
     const baselinesCount = filtered.filter(it => it.type === 'baseline').length;
 
-    // Raggruppa le date disponibili
+    // Raggruppa tutte le date disponibili ordinate
     const availableDates = Array.from(new Set(items.map(it => it.date))).sort().reverse();
 
     return NextResponse.json({
@@ -140,6 +156,7 @@ export async function GET(request: Request) {
       editsCount,
       baselinesCount,
       availableDates,
+      datesSummary,
       modifications: filtered,
     });
   } catch (error: any) {

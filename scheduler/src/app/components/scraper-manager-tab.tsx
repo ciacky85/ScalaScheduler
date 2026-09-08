@@ -7,9 +7,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PlusCircle, Trash2, Play, RefreshCw, Save, CheckCircle2, AlertCircle, Clock, Globe, Database, Shield, UploadCloud } from 'lucide-react';
+import { PlusCircle, Trash2, Play, RefreshCw, Save, CheckCircle2, AlertCircle, Clock, Globe, Database, Shield, UploadCloud, Bot, Camera } from 'lucide-react';
 import type { ScraperConfig, ScraperStatus } from '@/lib/types';
+import OdgModificationsView from './odg-modifications-view';
 
 const INITIAL_CONFIG: ScraperConfig = {
   urls: [
@@ -241,8 +243,23 @@ export default function ScraperManagerTab() {
   }
 
   return (
-    <div className="grid gap-6">
-      {/* Intestazione Admin */}
+    <Tabs defaultValue="config" className="w-full space-y-4">
+      <div className="flex items-center justify-between">
+        <TabsList className="bg-muted/80 p-1 border">
+          <TabsTrigger value="config" className="text-xs sm:text-sm flex items-center gap-2">
+            <Bot className="h-4 w-4 text-amber-500" />
+            <span>Configurazione & Esecuzione</span>
+          </TabsTrigger>
+          <TabsTrigger value="screenshots" className="text-xs sm:text-sm flex items-center gap-2">
+            <Camera className="h-4 w-4 text-primary" />
+            <span>Archivio Screenshot & Calendario Modifiche</span>
+          </TabsTrigger>
+        </TabsList>
+      </div>
+
+      <TabsContent value="config" className="mt-0 space-y-6">
+        <div className="grid gap-6">
+          {/* Intestazione Admin */}
       <Card className="border-amber-500/30 bg-amber-500/5 dark:bg-amber-950/10">
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -511,6 +528,12 @@ export default function ScraperManagerTab() {
           </div>
         </CardContent>
       </Card>
-    </div>
+        </div>
+      </TabsContent>
+
+      <TabsContent value="screenshots" className="mt-0">
+        <OdgModificationsView />
+      </TabsContent>
+    </Tabs>
   );
 }

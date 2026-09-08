@@ -21,17 +21,18 @@ L'ecosistema (WebApp Next.js + Motore Scraper Python con Playwright Chromium) è
    - **Isolamento utente**: ogni artista visualizza ed esporta solo verso il proprio calendario assegnato.
 
 2. **ODG (Ordine del Giorno da Web & Registro Modifiche Visuali)** — **[AGGIORNATO v2.1.0]**:
-   - **Doppia Vista Integrata**:
+   - **Doppia Vista Integrata & Calendario Interattivo**:
      - **Programma ODG & Push**: tabella in tempo reale con dati ERP, calcolo automatico orari con 8 livelli di fallback, modalità **Dry Run** e push su Google Calendar.
-     - **Registro Modifiche & Screenshot**: visualizzatore cronologico di tutte le revisioni intervenute durante la giornata.
-   - **Visual Diffing & Rilevamento Modifiche**:
+     - **Registro Modifiche & Calendario Screenshot**: visualizzatore cronologico a griglia mensile interattiva con navigazione per data, indicatore "Oggi" e anteprima istantanea di tutte le revisioni intervenute.
+   - **Visual Diffing & Riconoscimento Modifiche sul Calendario**:
      - Lo scraper scatta la baseline iniziale della giornata (`YYYY-MM-DD.png`) alle 00:02.
      - Nei cicli successivi calcola l'hash dei contenuti: se la pagina subisce variazioni, cattura lo scatto modificato (`YYYY-MM-DD_HHmm_edit.png`); se identica, evita scatti ridondanti.
+     - **Segno di riconoscimento sul Calendario**: i giorni che contengono screenshot di variazione (`_edit.png`) mostrano un badge ben evidente in evidenza ambra (`+{n}`) e bordo dorato, con scorciatoia "Giorni con Variazioni Rilevate" per individuarli e controllarli con un clic.
    - **Controllo Ogni 5 Minuti con Push Immediato**:
      - Oltre agli orari pianificati, se durante il controllo ogni 5 minuti viene rilevata una qualsiasi modifica ai dati o agli orari delle pagine ODG, l'applicazione aggiorna immediatamente il file schematico (`odg_structured.json`), scatta la modifica visiva ed esegue **istantaneamente il push automatico su Google Calendar ODG** senza attendere la schedulazione successiva.
-   - **Viewer Avanzato**:
+   - **Viewer Avanzato & Confronto Diretto**:
      - Dialog modale a schermo intero con zoom e dettagli temporali.
-     - Confronto visivo prima/dopo tra baseline e scatto modificato.
+     - Confronto visivo affiancato prima/dopo tra baseline iniziale e scatto modificato.
      - Link diretto alla cartella Google Drive e download del PNG originale.
      - Streaming locale sicuro ad alta efficienza tramite endpoint dedicato `/api/screenshots/image`.
 
