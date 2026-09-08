@@ -68,11 +68,9 @@ COPY --from=node-builder /app/scheduler/public ./public
 COPY --from=node-builder /app/scheduler/.next/standalone ./
 COPY --from=node-builder /app/scheduler/.next/static ./.next/static
 
-# Copia script ausiliari e wrapper di avvio
-COPY scheduler/cron-runner.js /app/cron-runner.js
-COPY scheduler/run-cron.sh /app/run-cron.sh
+# Copia script entrypoint wrapper
 COPY scheduler/entrypoint-wrapper.sh /app/entrypoint-wrapper.sh
-RUN chmod +x /app/run-cron.sh /app/entrypoint-wrapper.sh
+RUN chmod +x /app/entrypoint-wrapper.sh
 
 # Directory per volumi persistenti e compatibilità percorsi
 RUN mkdir -p /app/config /data/odg_shots

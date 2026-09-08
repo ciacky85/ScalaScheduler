@@ -38,11 +38,9 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
-# Copia file cron e entrypoint
-COPY cron-runner.js /app/cron-runner.js
-COPY run-cron.sh /app/run-cron.sh
+# Copia file entrypoint
 COPY entrypoint-wrapper.sh /app/entrypoint-wrapper.sh
-RUN chmod +x /app/run-cron.sh /app/entrypoint-wrapper.sh
+RUN chmod +x /app/entrypoint-wrapper.sh
 
 # Directory config per i bind mount
 RUN mkdir -p /app/config /app/src/app/config

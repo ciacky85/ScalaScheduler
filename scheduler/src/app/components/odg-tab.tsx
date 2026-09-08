@@ -3,13 +3,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useCalendars } from '@/contexts/calendar-context';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Loader2, RefreshCw, History, CalendarDays } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
+import OdgModificationsView from './odg-modifications-view';
 
 // --- Local Types from Schema ---
 interface ODGRowData {
@@ -72,6 +75,19 @@ export default function OdgTab() {
   const [error, setError] = useState<string | null>(null);
   const [lastSyncResult, setLastSyncResult] = useState<{ stats: SyncStats; details: any[]; dryRun: boolean } | null>(null);
   const [isDryRun, setIsDryRun] = useState(false);
+  const [todayEditsCount, setTodayEditsCount] = useState<number>(0);
+
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    fetch(`/api/odg/modifications?date=${today}`)
+      .then(res => res.json())
+      .then(json => {
+        if (json && json.ok) {
+          setTodayEditsCount(json.editsCount || 0);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const availableCalendars = (calendars || [])
     .filter(c => c && c.tipo === 'odg')
@@ -166,151 +182,182 @@ export default function OdgTab() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>ODG (Ordine del Giorno)</CardTitle>
-        <div className="flex justify-between items-center">
-          <CardDescription>
-            {odgData?.export_generated_at ? (
-              `Ultimo export file: ${safeFormatDate(odgData.export_generated_at)}`
-            ) : (
-              'Visualizzazione degli ordini del giorno più recenti.'
+    <Tabs defaultValue="programma" className="w-full space-y-4">
+      <div className="flex items-center justify-between">
+        <TabsList className="bg-muted/80 p-1 border">
+          <TabsTrigger value="programma" className="text-xs sm:text-sm flex items-center gap-2">
+            <CalendarDays className="h-4 w-4 text-primary" />
+            <span>Programma ODG & Push</span>
+          </TabsTrigger>
+          <TabsTrigger value="modifiche" className="text-xs sm:text-sm flex items-center gap-2">
+            <History className="h-4 w-4 text-amber-500" />
+            <span>Modifiche Rilevate & Screenshot</span>
+            {todayEditsCount > 0 && (
+              <Badge variant="secondary" className="font-mono text-[10px] px-1.5 py-0 h-4 bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                {todayEditsCount} oggi
+              </Badge>
             )}
-          </CardDescription>
-          <Button onClick={fetchData} variant="outline" size="sm" disabled={isLoading}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-            Ricarica
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="flex flex-wrap items-center gap-4 p-4 bg-muted/50 rounded-lg">
-          <div className="flex-grow flex items-center gap-2">
-            <Select onValueChange={setTargetCalendarId} value={targetCalendarId} disabled={availableCalendars.length === 0}>
-              <SelectTrigger className="w-[280px]" aria-label="Seleziona calendario ODG di destinazione">
-                <SelectValue placeholder="Seleziona calendario Google ODG" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableCalendars.map(cal => (
-                  <SelectItem key={cal.id} value={cal.calendarId}>
-                    {cal.label}
-                  </SelectItem>
-                ))}
-                {availableCalendars.length === 0 && <p className="p-4 text-sm text-muted-foreground">Nessun calendario ODG configurato.</p>}
-              </SelectContent>
-            </Select>
-            <Button onClick={handleExport} disabled={isExportDisabled}>
-              {isExporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Push su Google Calendar
-            </Button>
-          </div>
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="dryRunCheck"
-              checked={isDryRun}
-              onChange={(e) => setIsDryRun(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-            />
-            <label htmlFor="dryRunCheck" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
-              Dry Run (Simula solo, non esegue modifiche)
-            </label>
-          </div>
-        </div>
+          </TabsTrigger>
+        </TabsList>
+      </div>
 
-        {lastSyncResult && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Risultato Ultimo Push {lastSyncResult.dryRun ? '(Dry Run)' : ''}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="font-mono text-sm space-y-1">
-                <p>Scansionati: {lastSyncResult.stats?.scanned ?? 0}</p>
-                <p className="text-green-600">Inseriti: {lastSyncResult.stats?.inserted ?? 0}</p>
-                <p className="text-blue-600">Aggiornati: {lastSyncResult.stats?.updated ?? 0}</p>
-                <p className="text-gray-500">Invariati: {lastSyncResult.stats?.unchanged ?? 0}</p>
-                <p className="text-red-600">Rimossi: {lastSyncResult.stats?.deleted ?? 0}</p>
-                <p className="text-yellow-600">Saltati: {lastSyncResult.stats?.skipped ?? 0}</p>
+      <TabsContent value="programma" className="mt-0">
+        <Card>
+          <CardHeader>
+            <CardTitle>ODG (Ordine del Giorno)</CardTitle>
+            <div className="flex justify-between items-center">
+              <CardDescription>
+                {odgData?.export_generated_at ? (
+                  `Ultimo export file: ${safeFormatDate(odgData.export_generated_at)}`
+                ) : (
+                  'Visualizzazione degli ordini del giorno più recenti.'
+                )}
+              </CardDescription>
+              <Button onClick={fetchData} variant="outline" size="sm" disabled={isLoading}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                Ricarica
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex flex-wrap items-center gap-4 p-4 bg-muted/50 rounded-lg">
+              <div className="flex-grow flex items-center gap-2">
+                <Select onValueChange={setTargetCalendarId} value={targetCalendarId} disabled={availableCalendars.length === 0}>
+                  <SelectTrigger className="w-[280px]" aria-label="Seleziona calendario ODG di destinazione">
+                    <SelectValue placeholder="Seleziona calendario Google ODG" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableCalendars.map(cal => (
+                      <SelectItem key={cal.id} value={cal.calendarId}>
+                        {cal.label}
+                      </SelectItem>
+                    ))}
+                    {availableCalendars.length === 0 && <p className="p-4 text-sm text-muted-foreground">Nessun calendario ODG configurato.</p>}
+                  </SelectContent>
+                </Select>
+                <Button onClick={handleExport} disabled={isExportDisabled}>
+                  {isExporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Push su Google Calendar
+                </Button>
               </div>
-            </CardContent>
-          </Card>
-        )}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="dryRunCheck"
+                  checked={isDryRun}
+                  onChange={(e) => setIsDryRun(e.target.checked)}
+                  className="rounded border-gray-300 text-primary shadow-sm focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-50"
+                />
+                <label htmlFor="dryRunCheck" className="text-sm font-medium text-muted-foreground cursor-pointer">
+                  Dry Run (Simula senza modificare Google Calendar)
+                </label>
+              </div>
+            </div>
 
-        {isLoading && <div className="text-center p-8">Caricamento dati in corso...</div>}
-        {error && <div className="text-center p-8 text-destructive">{error}</div>}
-
-        <div className="space-y-8">
-          {pages.map((page, pageIndex) => {
-            const rows = Array.isArray(page?.table?.rows) ? page.table.rows : [];
-            const pageDateStr = page?.date?.label || (page?.date?.iso ? safeFormatDate(page.date.iso, 'dd/MM/yyyy') : 'Data N/D');
-
-            return (
-              <div key={page?.source_url || pageIndex}>
-                <div className="flex justify-between items-baseline mb-2">
-                  <h3 className="text-lg font-semibold font-headline">
-                    Ordine del Giorno {pageDateStr}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    Agg. Pagina Scala: {page?.last_update?.raw || 'N/D'}
-                  </p>
+            {/* Sync Feedback Alert */}
+            {lastSyncResult && (
+              <div className={`p-4 rounded-lg border text-sm ${lastSyncResult.dryRun ? 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-200' : 'bg-green-500/10 border-green-500/30 text-green-800 dark:text-green-200'}`}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-semibold">
+                    {lastSyncResult.dryRun ? 'Simulazione Push Completata (Dry Run)' : 'Push su Google Calendar Completato con Successo'}
+                  </span>
+                  <span className="text-xs font-mono opacity-75">
+                    {lastSyncResult.stats.scanned} scansionati
+                  </span>
                 </div>
-                <div className="rounded-md border overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[25%]">Destinatario</TableHead>
-                        <TableHead className="w-[15%]">Luogo</TableHead>
-                        <TableHead className="w-[15%]">Fascia oraria</TableHead>
-                        <TableHead className="w-[45%]">Descrizione</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {rows.length === 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono mt-2 pt-2 border-t border-current/20">
+                  <span>Inseriti: <strong>{lastSyncResult.stats.inserted}</strong></span>
+                  <span>Aggiornati: <strong>{lastSyncResult.stats.updated}</strong></span>
+                  <span>Rimossi: <strong>{lastSyncResult.stats.deleted}</strong></span>
+                  <span>Saltati (invariati): <strong>{lastSyncResult.stats.skipped + lastSyncResult.stats.unchanged}</strong></span>
+                </div>
+              </div>
+            )}
+
+            {error && <p className="text-destructive">{error}</p>}
+
+            <div className="space-y-6">
+              {pages.map((page, index) => {
+                const pageDate = page.date?.iso
+                  ? safeFormatDate(page.date.iso, 'EEEE d MMMM yyyy')
+                  : page.date?.label || `Pagina ${index + 1}`;
+                const rows = page.table?.rows || [];
+                const srcUrl = page.source_url || '';
+
+                return (
+                  <div key={index} className="border rounded-lg p-4 space-y-4">
+                    <div className="flex justify-between items-center border-b pb-2">
+                      <h3 className="text-lg font-semibold capitalize">{pageDate}</h3>
+                      <span className="text-sm text-muted-foreground">
+                        {page.last_update?.raw ? `Agg. ${page.last_update.raw}` : ''}
+                      </span>
+                    </div>
+
+                    <Table>
+                      <TableHeader>
                         <TableRow>
-                          <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                            Nessun evento
-                          </TableCell>
+                          <TableHead className="w-[15%]">Destinatario</TableHead>
+                          <TableHead className="w-[15%]">Luogo</TableHead>
+                          <TableHead className="w-[15%]">Orario</TableHead>
+                          <TableHead className="w-[55%]">Descrizione</TableHead>
                         </TableRow>
-                      ) : (
-                        rows.map((row, rowIndex) => {
-                          const timeDisplay = (row?.time?.start && row?.time?.end)
-                            ? `${row.time.start} - ${row.time.end}`
-                            : (row?.time?.raw || '');
+                      </TableHeader>
+                      <TableBody>
+                        {rows.map((row, rIdx) => (
+                          <TableRow key={rIdx}>
+                            <TableCell className="font-medium text-xs">
+                              {row.recipient?.normalized || row.recipient?.raw || '—'}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {row.place?.normalized || row.place?.raw || '—'}
+                            </TableCell>
+                            <TableCell className="text-xs font-mono">
+                              {row.time?.start
+                                ? `${row.time.start}${row.time.end ? ` - ${row.time.end}` : ''}`
+                                : row.time?.raw || '—'}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {row.description?.title && (
+                                <span className="font-semibold block">{row.description.title}</span>
+                              )}
+                              <span>{row.description?.raw || '—'}</span>
+                              {row.description?.details && row.description.details.length > 0 && (
+                                <span className="block text-[11px] text-muted-foreground mt-0.5">
+                                  {row.description.details.join(' | ')}
+                                </span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
 
-                          return (
-                            <TableRow key={rowIndex}>
-                              <TableCell>{row?.recipient?.raw || row?.recipient?.normalized || ''}</TableCell>
-                              <TableCell>{row?.place?.raw || row?.place?.normalized || ''}</TableCell>
-                              <TableCell className="font-mono text-xs">{timeDisplay}</TableCell>
-                              <TableCell>{row?.description?.raw || row?.description?.title || ''}</TableCell>
-                            </TableRow>
-                          );
-                        })
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-                <div className="flex justify-between items-center mt-2 text-xs text-muted-foreground">
-                  {(() => {
-                    const rawSrc = page?.source_url;
-                    const srcUrl = typeof rawSrc === 'string' ? rawSrc : ((rawSrc as any)?.url || (rawSrc as any)?.name || '');
-                    if (!srcUrl) return <span />;
-                    return (
-                      <a href={srcUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
-                        Fonte: {srcUrl}
-                      </a>
-                    );
-                  })()}
-                  <span>Righe: {rows.length}</span>
-                </div>
-              </div>
-            );
-          })}
-          {!isLoading && !error && pages.length === 0 && (
-            <p className="text-muted-foreground p-4 text-center">Nessun dato da visualizzare.</p>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+                    <div className="flex justify-between items-center text-xs text-muted-foreground pt-2">
+                      {(() => {
+                        const m = srcUrl.match(/pps=(\d+)/);
+                        const ppsLabel = m ? `ODG Pagina ${parseInt(m[1], 10) + 1} (pps=${m[1]})` : srcUrl;
+                        return srcUrl ? (
+                          <a href={srcUrl} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1 font-mono">
+                            <span>{ppsLabel}</span>
+                          </a>
+                        ) : null;
+                      })()}
+                      <span>Righe: {rows.length}</span>
+                    </div>
+                  </div>
+                );
+              })}
+              {!isLoading && !error && pages.length === 0 && (
+                <p className="text-muted-foreground p-4 text-center">Nessun dato da visualizzare.</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="modifiche" className="mt-0">
+        <OdgModificationsView />
+      </TabsContent>
+    </Tabs>
   );
 }

@@ -20,15 +20,16 @@ A partire dalla versione **v2.0.0**, l'intero ecosistema (WebApp Next.js + Motor
    - Esportazione massiva su Google Calendar con slot orari ed eventi full-day.
    - **Isolamento utente**: ogni artista visualizza ed esporta solo verso il proprio calendario assegnato.
 
-2. **ODG (Ordine del Giorno da Web)**:
+2. **ODG (Ordine del Giorno da Web & Registro Modifiche)**:
    - Visualizzazione in tempo reale dei dati estratti dall'ERP della Scala.
    - Sincronizzazione idempotente con deduplicazione basata su SHA-1 content hash e UID univoco.
    - Modalità **Dry Run** per simulare le modifiche prima di applicarle a Google Calendar.
+   - **Nuovo Registro Modifiche & Screenshot**: elenco cronologico completo di tutte le variazioni rilevate durante la giornata (screenshot aggiuntivi `_edit.png`), con baseline delle 00:02, anteprima visiva, dialog a schermo intero e link diretto su Google Drive.
 
 3. **Architettura Unificata a Singolo Container (v2.0.0)**:
    - WebApp e Scraper Python convivono nello stesso container (`node:20-bookworm-slim`).
    - Comunicazione diretta su `localhost:3000` a latenza zero.
-   - Demone dello scraper Python e `cron-runner.js` gestiti all'avvio da `entrypoint-wrapper.sh`.
+   - Demone dello scraper Python con gestione integrata degli orari `schedules` e push sequenziale automatico su Google Calendar gestito all'avvio da `entrypoint-wrapper.sh`.
 
 4. **Archiviazione Screenshot Google Drive ad Alte Prestazioni**:
    - **Confronto cartelle a due fasi (Folder-First Diff)**: pre-carica l'elenco cartelle su Drive con una singola chiamata e salta istantaneamente centinaia di cartelle storiche già allineate a costo zero millisecondi.
@@ -72,12 +73,10 @@ graph TD
     subgraph "Unico Container Docker: ScalaScheduler (v2.0.0)"
         direction TB
         A["WebApp Next.js<br/>(Porta 3000)"]
-        B["ODG Scraper Engine<br/>(Python 3.11 + Playwright Chromium)"]
-        C["Cron Runner Daemon<br/>(Node.js)"]
+        B["ODG Scraper & Auto-Sync Engine<br/>(Python 3.11 + Playwright Chromium)"]
         D["Volumi Interni<br/>/app/config & /data"]
         
-        A <-->|"Chiamate API dirette (localhost:3000)"| B
-        C -->|"Trigger Cron interno"| A
+        B -->|"Sequenza automatica (schedules):<br/>POST /api/odg/auto-sync"| A
         A --- D
         B --- D
     end

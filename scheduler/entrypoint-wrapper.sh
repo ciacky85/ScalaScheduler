@@ -8,11 +8,10 @@ export TZ=Europe/Rome
 
 # Assicura le directory dati e permessi
 mkdir -p /data/odg_shots /app/config /app/public 2>/dev/null || true
-chmod +x /app/run-cron.sh 2>/dev/null || true
 
-# Avvio Scraper Python in background (se presente)
+# Avvio Scraper Python con schedulatore integrato in background (se presente)
 if [ -f "/app/scraper/main.py" ]; then
-  echo "[entrypoint] Avvio ODG Scraper..."
+  echo "[entrypoint] Avvio ODG Scraper & Auto-Sync Daemon..."
   if [ -x "/app/scraper-venv/bin/python" ]; then
     PYTHON_CMD="/app/scraper-venv/bin/python"
   elif command -v python3 >/dev/null 2>&1; then
@@ -21,12 +20,6 @@ if [ -f "/app/scraper/main.py" ]; then
     PYTHON_CMD="python"
   fi
   $PYTHON_CMD /app/scraper/main.py >> /data/odg-scraper.log 2>&1 &
-fi
-
-# Avvio Cron Runner in background
-if [ -f "/app/cron-runner.js" ]; then
-  echo "[entrypoint] Avvio cron-runner..."
-  node /app/cron-runner.js >> /data/cron-runner.log 2>&1 &
 fi
 
 # Avvio Next.js WebApp (processo principale)

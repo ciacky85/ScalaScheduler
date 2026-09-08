@@ -46,6 +46,45 @@ def save_state(state_path: Path, data: Dict[str, Any]) -> None:
     ensure_dir(state_path.parent)
     state_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
+def load_modifications(mod_path: Path) -> list:
+    if mod_path.exists():
+        try:
+            data = json.loads(mod_path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict) and "modifications" in data:
+                return data["modifications"]
+        except Exception as e:
+            print(f"[shots] Errore lettura modifications.json: {e}")
+    return []
+
+def record_modification(output_dir: Path, entry: Dict[str, Any]) -> None:
+    mod_path = output_dir / "modifications.json"
+    mods = load_modifications(mod_path)
+    
+    # Rimuovi eventuale entry esistente con stesso ID
+    mods = [m for m in mods if m.get("id") != entry.get("id")]
+    mods.insert(0, entry)
+    mods = mods[:500]
+
+    ensure_dir(output_dir)
+    try:
+        mod_path.write_text(json.dumps(mods, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        print(f"[shots] Errore salvataggio modifications.json: {e}")
+
+    # Sincronizza anche nei percorsi accessibili direttamente dalla WebApp Next.js
+    for candidate in [
+        Path("/app/public/odg_shots/modifications.json"),
+        Path("public/odg_shots/modifications.json"),
+        Path("/data/modifications.json")
+    ]:
+        if candidate.parent.exists():
+            try:
+                candidate.write_text(json.dumps(mods, indent=2, ensure_ascii=False), encoding="utf-8")
+            except Exception:
+                pass
+
 def _measure_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont):
     if hasattr(draw, "textbbox"):
         bbox = draw.textbbox((0, 0), text, font=font)
@@ -182,13 +221,14 @@ def maybe_capture(
 
     api_url = scheduler_api_url or os.environ.get("SCHEDULER_API_URL", "http://scala-scheduler:3000")
 
-    # 1. Baseline mancante -> cattura e carica
+    # 1. Baseline mancante -> cattura, carica su Drive e traccia
     if not baseline_path.exists():
         print(f"[shots] Baseline mancante per {key}, la creo in: {baseline_path}")
         image_bytes = take_screenshot(url, baseline_path, full_page=full_page, tzname=tzname)
         state.setdefault("last", {})[key] = html_hash
         save_state(state_path, state)
 
+        drive_info = None
         if handle_screenshot:
             try:
                 res = handle_screenshot(
@@ -198,10 +238,28 @@ def maybe_capture(
                     scheduler_api_url=api_url,
                 )
                 if res and res.get("driveResult", {}).get("ok"):
+                    drive_info = res.get("driveResult")
                     state.setdefault("drive_uploaded", {})[key] = True
                     save_state(state_path, state)
             except Exception as e:
                 print(f"[shots] Errore upload drive baseline: {e}")
+
+        time_str = now_in_tz_str(tzname).split(" ")[1]
+        record_modification(output_dir, {
+            "id": f"{today}_000200_{url_name}_baseline",
+            "timestamp": now_in_tz(tzname).isoformat(),
+            "date": today,
+            "time": time_str,
+            "url_name": url_name,
+            "url": url,
+            "type": "baseline",
+            "filename": baseline_name,
+            "relative_path": f"{today}/{baseline_name}",
+            "drive_result": drive_info,
+            "prev_hash": None,
+            "new_hash": html_hash,
+            "note": "Screenshot iniziale (Baseline del giorno)"
+        })
 
         return baseline_path
 
@@ -228,28 +286,50 @@ def maybe_capture(
         save_state(state_path, state)
         return None
 
-    # 3. Hash cambiato -> scatto edit
+    # 3. Hash cambiato -> scatto edit e registrazione modifica
     if prev_hash != html_hash:
         if _is_within_window(tzname, window_start, window_end):
             time_part = now_in_tz_str(tzname).split(" ")[1].replace(":", "")
+            time_str = now_in_tz_str(tzname).split(" ")[1]
             edit_name = f"{today}_{time_part}_{url_name}_edit.png"
             edit_path = day_dir / edit_name
             print(f"[shots] Contenuto cambiato per {key}, scatto edit: {edit_path}")
             image_bytes = take_screenshot(url, edit_path, full_page=full_page, tzname=tzname)
             
+            drive_info = None
             if handle_screenshot:
                 try:
-                    handle_screenshot(
+                    res = handle_screenshot(
                         image_bytes=image_bytes,
                         filename=f"{today}/{edit_name}",
                         local_dest_dir=str(output_dir),
                         scheduler_api_url=api_url,
                     )
+                    if res and res.get("driveResult", {}).get("ok"):
+                        drive_info = res.get("driveResult")
                 except Exception as e:
                     print(f"[shots] Errore upload drive edit: {e}")
             
             state.setdefault("last", {})[key] = html_hash
             save_state(state_path, state)
+
+            # Registra la modifica nell'elenco storico
+            record_modification(output_dir, {
+                "id": f"{today}_{time_part}_{url_name}_edit",
+                "timestamp": now_in_tz(tzname).isoformat(),
+                "date": today,
+                "time": time_str,
+                "url_name": url_name,
+                "url": url,
+                "type": "edit",
+                "filename": edit_name,
+                "relative_path": f"{today}/{edit_name}",
+                "drive_result": drive_info,
+                "prev_hash": prev_hash,
+                "new_hash": html_hash,
+                "note": f"Modifica rilevata alle ore {time_str}"
+            })
+
             return edit_path
         else:
             print(f"[shots] Cambio rilevato per {key} ma fuori dalla finestra ({window_start}-{window_end}).")

@@ -168,7 +168,6 @@ scheduler/
 │   │   │   ├── calendars.json       # Configurazione calendari Google (con ownerUserId)
 │   │   │   ├── user.json            # [NUOVO] Database utenti (password in chiaro)
 │   │   │   ├── drive_config.json    # Config Google Drive (URL cartella, salva locale)
-│   │   │   ├── odg_update_time.json # Orari schedulazione cron
 │   │   │   └── service-account-key.json  # Chiave SA Google (SEGRETO)
 │   │   ├── api/
 │   │   │   ├── auth/                # [NUOVO] API Autenticazione
@@ -228,11 +227,8 @@ scheduler/
 │       └── utils/
 │           └── date.ts             # Utility date
 ├── Dockerfile                       # Multi-stage build standalone (deps → build → run) ~180 MB
-├── Dockerfile.cron                  # Container Alpine con dcron
-├── docker-compose.yml               # Orchestrazione app + cron
-├── cron-runner.js                   # Scheduler JS (tick + match orari)
-├── run-cron.sh                      # Script shell: POST → /api/odg/cron
-├── entrypoint-wrapper.sh            # Entrypoint Docker: avvia cron-runner + next
+├── docker-compose.yml               # Configurazione docker-compose locale
+├── entrypoint-wrapper.sh            # Entrypoint Docker: avvia scraper daemon + server Next.js
 ├── apphosting.yaml                  # Config Firebase App Hosting
 └── public/
     ├── odg_structured.json          # Dati ODG (shared con scraper via volume)
@@ -294,12 +290,21 @@ L'applicazione implementa un **Access Gate obbligatorio**: se l'utente non è au
 6. Pulsante "Esporta su Google Calendar" → [`export-events.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/lib/calendar/export-events.ts) (Server Action)
 
 #### Tab 2: "ODG" (Ordine del Giorno da Web) — Visibile a tutti
-**Flusso**:
-1. Carica `/odg_structured.json` (via fetch, prodotto dallo scraper)
-2. Mostra tabella **read-only** con data/destinatario/luogo/orario/descrizione
-3. Selezionare calendario di destinazione (filtrato per proprietario) e push tramite API `/api/odg/push`
-4. Supporta **Dry Run** (simulazione senza modifiche)
-5. Mostra risultato sync: scanned/inserted/updated/unchanged/deleted/skipped
+La scheda include due sotto-viste selezionabili tramite tabs interne:
+
+1. **Sotto-scheda "Programma ODG & Push"**:
+   - Carica `/odg_structured.json` (via fetch, prodotto dallo scraper)
+   - Mostra tabella **read-only** con data/destinatario/luogo/orario/descrizione
+   - Seleziona il calendario di destinazione e invia il push tramite API `/api/odg/push` (motore `odg-sync.ts`)
+   - Supporta **Dry Run** (simulazione senza modifiche al calendario Google)
+   - Mostra riepilogo dettagliato del sync: scansionati, inseriti, aggiornati, rimossi, invariati
+
+2. **Sotto-scheda "Modifiche Rilevate & Screenshot"** — **[NUOVO]**:
+   - Badge con conteggio in tempo reale delle modifiche rilevate oggi
+   - **Registro Cronologico**: elenco ordinato di tutte le volte in cui durante la giornata sono state riscontrate variazioni nel testo/tabella delle pagine ODG della Scala
+   - Per ciascuna modifica: ora esatta del rilevamento, pagina (`odg_0` / `odg_1`), anteprima screenshot, visualizzazione ingrandita in modale, pulsante per visualizzare il file su Google Drive e download del PNG
+   - Sezione dedicata alla **Baseline Iniziale delle 00:02** per confronto visivo immediato
+   - Selettore data per consultare lo storico dei giorni precedenti (alimentato da `modifications.json`)
 
 #### Tab 3: "Impostazioni" (Solo Admin)
 - **Service Account**: mostra email del service account da aggiungere con permessi di scrittura a Google Calendar e con ruolo **Editor** alla cartella di Google Drive.
@@ -414,10 +419,20 @@ interface DriveConfig {
   6. Esegue upsert intelligente: insert/update/skip/delete
   7. Rimuove duplicati e eventi non più presenti nel sorgente
 
-#### `POST /api/odg/cron`
-- **File**: [`cron/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/cron/route.ts)
-- **Funzione**: Identica a `/api/odg/push` ma chiamata dal cron scheduler
-- **Differenze**: legge automaticamente il `calendarId` predefinito da `calendars.json`, non supporta dry run
+#### `POST /api/odg/auto-sync`
+- **File**: [`auto-sync/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/odg/auto-sync/route.ts)
+- **Funzione**: Esegue la sincronizzazione automatica su Google Calendar ODG in sequenza dopo lo scraping programmato
+- **Dettagli**: Richiama il modulo unificato `odg-sync.ts`, risolve automaticamente il calendario ODG predefinito da `calendars.json` e legge `odg_structured.json` dai percorsi candidati (`/data`, `public/`) senza richiedere parametri obbligatori nel payload
+
+#### `GET /api/odg/modifications` — **[NUOVO]**
+- **File**: [`api/odg/modifications/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/odg/modifications/route.ts)
+- **Funzione**: Restituisce lo storico cronologico di tutte le modifiche rilevate durante la giornata (screenshot aggiuntivi `_edit.png`) e la baseline iniziale
+- **Input Query**: `?date=YYYY-MM-DD` (opzionale, default tutte le modifiche o data corrente)
+- **Output**: `{ ok, filterDate, total, editsCount, baselinesCount, availableDates, modifications: [...] }`
+
+#### `GET /api/screenshots/image` — **[NUOVO]**
+- **File**: [`api/screenshots/image/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/screenshots/image/route.ts)
+- **Funzione**: Serve in streaming sicuro le immagini degli screenshot (`image/png`) archiviate nei percorsi locali (`/data/odg_shots`, `public/odg_shots`) per consentire la visualizzazione e l'ingrandimento nella WebApp
 
 #### `GET/POST /api/settings/drive` — **[NUOVO]**
 - **File**: [`api/settings/drive/route.ts`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/src/app/api/settings/drive/route.ts)
@@ -570,8 +585,8 @@ ScalaScheduler risolve nativamente il problema consentendo l'inserimento delle c
 | Calendari | File JSON (`config/calendars.json`) via API | Lista calendari con label, ID Google, tipo, predefinito, **ownerUserId** |
 | **Utenti** | **File JSON (`config/user.json`) via API** | **[NUOVO] Profili utenti con password in chiaro, ruoli, stato, calendari assegnati** |
 | **Drive Config** | **File JSON (`src/app/config/drive_config.json`) via API** | **[NUOVO] URL cartella, ID estratto, flag salva-locale** |
-| ODG Data | File JSON (`public/odg_structured.json`) | Dati scraper (read-only dalla web app) |
-| ODG Orari Cron | File JSON (`config/odg_update_time.json`) | Orari di esecuzione cron |
+| ODG Data | File JSON (`/data/odg_structured.json` e `public/odg_structured.json`) | Dati strutturati estratti dalle pagine ODG |
+| Scraper & Sync Config | File JSON (`/data/config.json` e `public/config.json`) | URLs da analizzare, flag screenshot e orari `schedules` |
 | PDF Parsed Data | State React (in memoria) | Dati estratti dal PDF (non persistiti) |
 
 ### 3.13 Configurazione Calendari
@@ -658,30 +673,33 @@ Il Dockerfile del scheduler usa un **build multi-stage con output `standalone`**
 - La fase finale del Dockerfile copia solo il server standalone, i file statici e le risorse pubbliche.
 - `npm cache clean --force` e rimozione di `.next/cache` per ulteriore risparmio.
 
-### 4.3 Meccanismo Cron (Doppia Implementazione)
+### 4.3 Meccanismo di Schedulazione & Monitoraggio Unificato
 
-Ci sono **due sistemi cron** coesistenti:
+A partire dall'unificazione del container, qualsiasi cron legacy esterno (`cron-runner.js`, `run-cron.sh`, `Dockerfile.cron`, `odg_update_time.json`) è stato completamente **disabilitato ed eliminato**.
 
-**1. `cron-runner.js`** (integrato nel container app):
-- Avviato come processo background dall'`entrypoint-wrapper.sh`
-- Polling ogni 15 secondi
-- Legge gli orari da `odg_update_time.json`
-- Quando l'ora corrente matcha un orario configurato, esegue `run-cron.sh`
+L'intero ciclo temporale è gestito in modo coordinato dal demone dello scraper Python integrato nel container:
 
-**2. `Dockerfile.cron`** (container separato con Alpine + dcron):
-- Esegue `run-cron.sh` ogni minuto
-- Script: POST HTTP a `http://localhost:3000/api/odg/cron`
+1. **Scatto Baseline Giornaliero (ore 00:02)**:
+   - Alle ore `00:02` di ogni giorno (o alla prima esecuzione giornaliera se mancante), acquisisce la baseline iniziale (`YYYY-MM-DD_name.png`) per entrambe le pagine ODG con watermark orario e la archivia su Google Drive condiviso.
 
-`run-cron.sh`:
-```bash
-API_ENDPOINT="${API_ENDPOINT:-http://localhost:3000/api/odg/cron}"
-curl -sS -X POST -H "Content-Type: application/json" "$API_ENDPOINT" --fail
-# 3 tentativi con retry
-```
+2. **Verifica Differenze ogni 5 Minuti**:
+   - Ogni 5 minuti (`poll_minutes: 5`), il demone estrae l'hash canonico delle pagine ODG.
+   - Se riscontra una variazione rispetto allo scatto precedente (`prev_hash != html_hash`):
+     - Effettua immediatamente uno screenshot aggiuntivo di modifica: `YYYY-MM-DD_HHMMSS_name_edit.png`.
+     - Carica lo screenshot su Google Drive tramite `drive_uploader`.
+     - Registra l'evento in `modifications.json` (accessibile dall'interfaccia web nella schermata "Modifiche Rilevate").
+
+3. **Allineamento & Push su Google Calendar agli orari `schedules`**:
+   - Negli orari configurati dall'amministratore (es. `07:00`, `21:00`):
+     - Esegue l'analisi completa e rigenera `/data/odg_structured.json` e `public/odg_structured.json`.
+     - Invoca `POST http://localhost:3000/api/odg/auto-sync` per sincronizzare il calendario Google ODG predefinito gestendo l'idempotenza con content hash.
 
 ### 4.4 Orari Aggiornamento Configurati
+Gli orari sono configurabili in tempo reale dall'amministratore nella WebApp e salvati in `config.json`:
 ```json
-{ "timezone": "Europe/Rome", "update_times": ["00:05", "08:05", "12:25", "21:05"] }
+{
+  "schedules": ["07:00", "21:00"]
+}
 ```
 
 ### 4.5 Container Registry
@@ -752,10 +770,9 @@ curl -sS -X POST -H "Content-Type: application/json" "$API_ENDPOINT" --fail
 - **Calendari**: file JSON su filesystem (via API) — fragile in ambiente serverless
 - **Nessun database** — tutto basato su file
 
-### 6.5 Cron Runner come File Heredoc
-- [`cron-runner.js`](file:///c:/Users/carlo/Desktop/ProgettiAntiGravity/ScalaScheduler/scheduler/cron-runner.js) inizia con `cat > /app/cron-runner.js <<'JS'`
-- Sembra essere stato concepito come parte di uno script shell ma salvato come `.js`
-- In Docker, l'`entrypoint-wrapper.sh` lo esegue direttamente con `node`
+### 6.5 ~~Cron Runner come File Heredoc~~ ✅ RISOLTO (ELIMINATO)
+- Tutti i file cron legacy (`cron-runner.js`, `run-cron.sh`, `Dockerfile.cron`, `odg_update_time.json`) sono stati definitivamente eliminati.
+- La schedulazione e il push su Google Calendar sono ora orchestrati in sequenza diretta dal demone scraper secondo gli orari `schedules` di `config.json`.
 
 ### 6.6 Nessun Test Automatizzato
 - Non ci sono file di test (`*.test.ts`, `*.spec.ts`)
@@ -783,14 +800,16 @@ Utente → [Upload PDF] → pdfjs-dist (client) → estraiProgrammaCoro()
 ### 7.2 Flusso "ODG Web → Google Calendar" (Manuale + Automatico)
 
 ```
-[Scraper Python] → /data/odg_structured.json ← [Volume Docker condiviso]
+[Scraper Python] → /data/odg_structured.json + public/odg_structured.json
     → (Manuale) Utente apre Tab ODG → fetch /odg_structured.json
     → [Click "Push su Google Calendar"] → POST /api/odg/push
-    → runSync() → Google Calendar API (upsert + delete)
+    → runOdgCalendarSync() → Google Calendar API (upsert + delete)
 
-    → (Automatico) cron-runner.js → match orario
-    → run-cron.sh → POST /api/odg/cron
-    → runSync() → Google Calendar API (upsert + delete)
+    → (Automatico) Demone Scraper (main.py) → orari 'schedules' (config.json)
+    → Esecuzione sequenziale:
+        1. Analisi pagine ODG e salvataggio file/screenshot
+        2. POST http://localhost:3000/api/odg/auto-sync
+        3. runOdgCalendarSync() → Google Calendar API (upsert + delete su calendario predefinito)
 ```
 
 ### 7.3 Flusso "Screenshot → Google Drive + Locale" — **[NUOVO]**
@@ -924,9 +943,7 @@ docker-compose up --build
 |------|----------|
 | `Dockerfile` (root) | **[UNIFICATO v2.0.0]** Multi-stage build (`node:20-bookworm-slim`) che compila Next.js standalone, installa Python 3.11 con venv isolato, librerie grafiche e Playwright Chromium headless |
 | `docker-compose.yml` (root) | **[UNIFICATO v2.0.0]** Servizio singolo `scala-scheduler` su porta `3010:3000` con volumi `/app/config` e `/data` |
-| `scheduler/entrypoint-wrapper.sh` | Wrapper di boot: timezone `Europe/Rome`, avvio demone `main.py` (scraper), avvio `cron-runner.js`, e avvio server Next.js |
-| `scheduler/cron-runner.js` | Demone Node.js: polling configurabile, match orari ODG e trigger locale verso `/api/odg/cron` |
-| `scheduler/run-cron.sh` | Script di invocazione HTTP locale verso `http://localhost:3000/api/odg/cron` con retry |
+| `scheduler/entrypoint-wrapper.sh` | Wrapper di boot: timezone `Europe/Rome`, avvio demone `main.py` (scraper + pianificatore sequenziale), e avvio server Next.js |
 | `version.json` (root) | File JSON di tracciamento versione software allineato tra build e runtime |
 
 ---
@@ -939,8 +956,7 @@ Il sistema è deployato tramite **Portainer (Stack da Git Repository)** su serve
 NAS / Server Locale (Portainer)
 └── Docker Container Unico: ScalaScheduler (v2.0.0)
     ├── WebApp Next.js 15 (Node.js 20 Standalone — porta 3000)
-    ├── ODG Scraper Engine (Python 3.11 + Playwright Chromium Headless)
-    ├── Cron Runner Daemon (Node.js)
+    ├── ODG Scraper & Auto-Sync Engine (Python 3.11 + Playwright Chromium Headless)
     ├── Volume Host 1: /srv/docker_conf/configs/ScalaScheduler/config -> /app/config
     └── Volume Host 2: /srv/docker_conf/configs/ScalaScheduler/odg-scraper/config -> /data
 ```

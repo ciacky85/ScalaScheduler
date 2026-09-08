@@ -32,7 +32,7 @@ DEFAULT_CONFIG = {
     "screenshots_dir": "/data/odg_shots",
     "enable_screenshots": True,
     "schedules": ["07:00", "21:00"],
-    "poll_minutes": 10,
+    "poll_minutes": 5,
     "run_on_start": True
 }
 
@@ -391,6 +391,61 @@ def run_once(cfg: dict):
         json.dump(payload, f, ensure_ascii=False, indent=2)
     log(f"Scritto JSON: {out} (pagine={len(pages)}, righe_totali={sum(p['stats']['row_count'] for p in pages)})")
 
+    # Allinea anche in public se presente per accesso webapp immediato
+    for pub_p in [Path("/app/public/odg_structured.json"), Path("public/odg_structured.json")]:
+        if pub_p.parent.exists():
+            try:
+                with open(pub_p, "w", encoding="utf-8") as pf:
+                    json.dump(payload, pf, ensure_ascii=False, indent=2)
+                log(f"Copiato JSON anche in: {pub_p}")
+                break
+            except Exception as pe:
+                log(f"WARNING copia JSON su {pub_p}: {pe}")
+
+DEFAULT_SCHEDULER_URL = os.environ.get("SCHEDULER_API_URL", "http://localhost:3000")
+
+def trigger_calendar_push(scheduler_url: str = DEFAULT_SCHEDULER_URL) -> bool:
+    """
+    Invia la richiesta di sincronizzazione automatica a ScalaScheduler per caricare
+    gli ODG aggiornati su Google Calendar in sequenza dopo lo scraping.
+    """
+    url = f"{scheduler_url.rstrip('/')}/api/odg/auto-sync"
+    log(f"Inizio sequenza: push automatico su Google Calendar ({url})...")
+
+    max_attempts = 5
+    for attempt in range(1, max_attempts + 1):
+        try:
+            res = requests.post(url, json={}, timeout=60)
+            if res.status_code == 200:
+                data = res.json()
+                st = data.get("stats", {})
+                log(f"Push Google Calendar completato con successo: "
+                    f"Scansionati={st.get('scanned', 0)}, Inseriti={st.get('inserted', 0)}, "
+                    f"Aggiornati={st.get('updated', 0)}, Rimossi={st.get('deleted', 0)}, "
+                    f"Invariati={st.get('unchanged', 0)}, Saltati={st.get('skipped', 0)}")
+                return True
+            else:
+                log(f"WARNING: Risposta {res.status_code} da {url}: {res.text[:200]}")
+        except requests.exceptions.RequestException as req_err:
+            log(f"Tentativo {attempt}/{max_attempts} connessione a {url} fallito: {req_err}")
+            if attempt < max_attempts:
+                time.sleep(4)
+        except Exception as e:
+            log(f"ERRORE imprevisto durante push su Google Calendar: {e}")
+            break
+
+    log("WARNING: Impossibile completare il push su Google Calendar dopo i tentativi previsti.")
+    return False
+
+def run_pipeline(cfg):
+    """
+    Esegue la sequenza completa:
+    1. Analisi pagine ODG e salvataggio file dati/screenshot
+    2. Push automatico su Google Calendar ODG
+    """
+    run_once(cfg)
+    trigger_calendar_push()
+
 def seconds_until_next(now, hhmm_list):
     today = now.date()
     candidates = []
@@ -411,7 +466,7 @@ def main():
     cfg = load_config()
     log(f"Config: {json.dumps(cfg, ensure_ascii=False)} (TZ={TZ.key})")
     if cfg.get("run_on_start", True):
-        run_once(cfg)
+        run_pipeline(cfg)
 
     stop = False
     def _sig(*_a):
@@ -426,35 +481,68 @@ def main():
         Path("trigger_run"),
     ]
 
+    last_poll_time = time.time()
+    last_schedule_minute = ""
+    last_baseline_date = ""
+
+    log("Demone ODG Scraper & Screenshot attivo (Verifica diff: ogni 5min | Baseline: 00:02 | Push Calendar: orari schedules)")
+
     while not stop:
         try:
-            wait_s = seconds_until_next(datetime.now(TZ), cfg.get("schedules", []))
-            log(f"Prossima esecuzione pianificata tra ~{wait_s//3600}h {wait_s%3600//60}m")
-            for _ in range(wait_s):
-                if stop:
+            now = datetime.now(TZ)
+            current_hhmm = now.strftime("%H:%M")
+            current_date = now.strftime("%Y-%m-%d")
+            minute_key = now.strftime("%Y-%m-%d %H:%M")
+
+            # 1. Trigger manuale da interfaccia web
+            triggered = False
+            for tp in trigger_paths:
+                if tp.exists():
+                    try:
+                        tp.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                    log("Trigger manuale rilevato da webapp! Esecuzione immediata pipeline...")
+                    cfg = load_config()
+                    run_pipeline(cfg)
+                    last_poll_time = time.time()
+                    triggered = True
                     break
-                triggered = False
-                for tp in trigger_paths:
-                    if tp.exists():
-                        try:
-                            tp.unlink(missing_ok=True)
-                        except Exception:
-                            pass
-                        log("Trigger manuale rilevato da webapp! Avvio immediato scraping e screenshot...")
-                        cfg = load_config()
-                        run_once(cfg)
-                        triggered = True
-                        break
-                if triggered:
-                    break
+
+            if triggered:
                 time.sleep(1)
-            if stop:
-                break
-            if not triggered:
+                continue
+
+            # 2. Orario 00:02: scatto baseline per entrambe le pagine
+            if current_hhmm == "00:02" and last_baseline_date != current_date:
+                log("Rilevato orario 00:02: esecuzione scatto baseline per entrambe le pagine...")
+                cfg = load_config()
                 run_once(cfg)
+                last_baseline_date = current_date
+                last_poll_time = time.time()
+
+            # 3. Orari di esecuzione programmata (schedules) con push Google Calendar
+            configured_schedules = cfg.get("schedules", [])
+            if current_hhmm in configured_schedules and last_schedule_minute != minute_key:
+                log(f"Match orario programmato ({current_hhmm}): avvio sequenza completa con push Google Calendar...")
+                cfg = load_config()
+                run_pipeline(cfg)
+                last_schedule_minute = minute_key
+                last_poll_time = time.time()
+
+            # 4. Verifica differenze periodica (default ogni 5 minuti = 300s)
+            poll_seconds = max(60, int(cfg.get("poll_minutes", 5)) * 60)
+            if time.time() - last_poll_time >= poll_seconds:
+                log(f"Verifica periodica differenze (cadenza: {poll_seconds//60} min)...")
+                cfg = load_config()
+                run_once(cfg)
+                last_poll_time = time.time()
+
+            time.sleep(2)
         except Exception as e:
-            log(f"Errore loop: {e}")
+            log(f"Errore loop daemon: {e}")
             time.sleep(10)
 
 if __name__ == "__main__":
     main()
+
