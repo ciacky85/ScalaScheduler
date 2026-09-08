@@ -53,7 +53,7 @@ function normalizeDateStr(raw: string): string | null {
   const clean = raw.trim();
 
   // 1. ISO YYYY-MM-DD o YYYY_MM_DD o YYYY/MM/DD
-  const mISO = clean.match(/^(\d{4})[/-_](\d{1,2})[/-_](\d{1,2})/);
+  const mISO = clean.match(/^(\d{4})[\/\-_](\d{1,2})[\/\-_](\d{1,2})/);
   if (mISO) {
     const y = mISO[1];
     const m = mISO[2].padStart(2, '0');
@@ -62,7 +62,7 @@ function normalizeDateStr(raw: string): string | null {
   }
 
   // 2. IT DD-MM-YYYY o DD_MM_YYYY o DD/MM/YYYY
-  const mIT = clean.match(/^(\d{1,2})[/-_](\d{1,2})[/-_](\d{4})/);
+  const mIT = clean.match(/^(\d{1,2})[\/\-_](\d{1,2})[\/\-_](\d{4})/);
   if (mIT) {
     const d = mIT[1].padStart(2, '0');
     const m = mIT[2].padStart(2, '0');
@@ -301,12 +301,10 @@ export async function GET(request: Request) {
         let isEdit = false;
         if (filename.toLowerCase().includes('edit')) {
           isEdit = true;
+        } else if (existingJson?.type === 'edit') {
+          isEdit = true;
         } else if (totalFiles >= 3 && idx >= 2) {
           isEdit = true;
-        }
-
-        if (existingJson && existingJson.type) {
-          isEdit = existingJson.type === 'edit';
         }
 
         if (isEdit) {

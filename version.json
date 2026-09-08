@@ -1,7 +1,6 @@
 {
-  "version": "2.1.0",
-  "label": "v2.1.0",
+  "version": "2.2.0",
+  "label": "v2.2.0",
   "buildDate": "2026-09-08",
-  "changelog": "v2.1.0: Auto-sync ODG unificato, rilevamento modifiche visuali prima/dopo con API screenshot dedicate e rimozione container cron ridondante"
+  "changelog": "v2.2.0: Calendario interattivo screenshot ODG, scansione storica completa del filesystem, rilevamento automatico modifiche (3+ screenshot o _edit.png) e badge di riconoscimento visivo"
 }
-

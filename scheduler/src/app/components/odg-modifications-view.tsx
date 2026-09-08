@@ -346,7 +346,9 @@ export default function OdgModificationsView() {
                       className={`
                         relative h-11 w-full rounded-lg flex flex-col items-center justify-center transition-all text-xs
                         ${isSelected 
-                          ? 'ring-2 ring-primary bg-primary text-primary-foreground font-bold shadow-sm z-10' 
+                          ? hasEdits
+                            ? 'ring-3 ring-amber-500 bg-amber-500 text-white font-bold shadow-md z-10'
+                            : 'ring-2 ring-primary bg-primary text-primary-foreground font-bold shadow-sm z-10' 
                           : hasEdits
                             ? 'bg-amber-500/15 border-2 border-amber-500/80 text-amber-950 dark:text-amber-100 font-bold hover:bg-amber-500/25 shadow-xs'
                             : hasShots
@@ -364,10 +366,10 @@ export default function OdgModificationsView() {
                       {hasEdits && (
                         <span 
                           className={`
-                            absolute -top-1.5 -right-1.5 flex h-4 min-w-4 px-1 items-center justify-center rounded-full text-[9px] font-black shadow-sm
+                            absolute -top-1.5 -right-1.5 flex h-4 min-w-4 px-1 items-center justify-center rounded-full text-[9px] font-black shadow-sm ring-1 ring-background z-20
                             ${isSelected 
-                              ? 'bg-amber-400 text-amber-950 ring-1 ring-background' 
-                              : 'bg-amber-500 text-white animate-bounce ring-1 ring-background'
+                              ? 'bg-amber-950 text-white dark:bg-amber-100 dark:text-amber-950' 
+                              : 'bg-amber-500 text-white animate-bounce'
                             }
                           `}
                           title={`${editsCount} screenshot di modifica rilevati`}

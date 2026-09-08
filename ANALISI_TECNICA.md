@@ -4,11 +4,11 @@
 > **Autore**: ciacky85 (Carlo)
 > **Scopo**: Estrarre gli eventi dai programmi di lavoro del Coro del Teatro alla Scala (PDF e pagine web) e sincronizzarli su calendari Google tramite Service Account. Rilevare modifiche visive giornaliere con visual diffing e archiviare gli screenshot su Google Drive con autenticazione OAuth 2.0.
 > **Data analisi iniziale**: 01/09/2026
-> **Versione attuale**: **v2.1.0** (08/09/2026) — **Visual Diffing ODG & Gestione Modifiche Giornaliere**: Rilevamento modifiche visuali con baseline e scatti differenziali (`_edit.png`), endpoint dedicato `/api/screenshots/image` per lo streaming sicuro di screenshot locali, centralizzazione motore di sincronizzazione Google Calendar (`src/lib/calendar/odg-sync.ts`), pipeline automatica di auto-sync post-scraping (`/api/odg/auto-sync`), visualizzatore avanzato con zoom e confronto prima/dopo (`odg-modifications-view.tsx`), eliminazione container cron e script runner ridondanti.
+> **Versione attuale**: **v2.2.0** (08/09/2026) — **Navigatore Screenshot a Calendario & Rilevamento Storico Variazioni**: Calendario web interattivo a griglia mensile per screenshot ODG con badge visivo evidenziato (`+{editsCount}`) per date con modifiche (3+ screenshot o `_edit.png`), scansione storica profonda del filesystem su tutti i formati cartella, dialog di confronto affiancato e viewer con zoom.
 
 ---
 
-## 1. Panoramica Architetturale (v2.1.0)
+## 1. Panoramica Architetturale (v2.2.0)
 
 A partire dalla release **v2.0.0** e consolidata con la **v2.1.0**, l'architettura opera in un **singolo container Docker unificato** multi-stage basato su `node:20-bookworm-slim` (Debian). La WebApp Next.js e il motore di scraping Python con Playwright Chromium comunicano localmente su `localhost:3000` con latenza zero.
 
