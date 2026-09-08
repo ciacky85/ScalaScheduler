@@ -135,6 +135,17 @@ export default function OdgModificationsView() {
     }
   }, [selectedDate]);
 
+  const [globalDatesSummary, setGlobalDatesSummary] = useState<Record<string, DaySummary>>({});
+
+  useEffect(() => {
+    if (data?.datesSummary && Object.keys(data.datesSummary).length > 0) {
+      setGlobalDatesSummary(prev => ({
+        ...prev,
+        ...data.datesSummary,
+      }));
+    }
+  }, [data?.datesSummary]);
+
   const edits = useMemo(() => {
     return (data?.modifications || []).filter(m => m.type === 'edit');
   }, [data?.modifications]);
@@ -143,7 +154,12 @@ export default function OdgModificationsView() {
     return (data?.modifications || []).filter(m => m.type === 'baseline');
   }, [data?.modifications]);
 
-  const datesSummary = data?.datesSummary || {};
+  const datesSummary = useMemo(() => {
+    return {
+      ...globalDatesSummary,
+      ...(data?.datesSummary || {}),
+    };
+  }, [globalDatesSummary, data?.datesSummary]);
 
   // Elenco dei giorni con modifiche registrate nello storico
   const datesWithEditsList = useMemo(() => {

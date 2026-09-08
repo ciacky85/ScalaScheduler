@@ -6,8 +6,11 @@ import path from 'path';
 function getCandidateShotsDirs(): string[] {
   return [
     '/data/odg_shots',
+    '/app/public/odg_shots',
     path.join(process.cwd(), 'public', 'odg_shots'),
     path.join(process.cwd(), 'odg_shots'),
+    '/data',
+    path.join(process.cwd(), 'public'),
   ];
 }
 

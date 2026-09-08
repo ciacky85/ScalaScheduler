@@ -321,7 +321,8 @@ La scheda include due sotto-viste selezionabili tramite tabs interne:
 2. **Sotto-scheda "Modifiche Rilevate & Screenshot"** (e sotto-scheda dedicata in Scraper Manager) — **[AGGIORNATO v2.1.0]**:
    - **Calendario Interattivo Mensile**:
      - Navigazione mese per mese con pulsante "Oggi" e supporto localizzato in italiano.
-     - **Segno di riconoscimento visivo per giorni con modifiche**: ogni cella del calendario che contiene screenshot di modifica (`_edit.png`) presenta un bordo ambrato ben visibile, sfondo evidenziato e un badge con contatore (`+{editsCount}`) e icona di avviso per consentire all'utente di individuare a colpo d'occhio i giorni in cui sono intervenute variazioni al programma.
+     - **Segno di riconoscimento visivo per giorni con modifiche**: ogni cella del calendario che contiene screenshot di modifica (`_edit.png`), file con timestamp di modifica, oppure **3 o più screenshot nella giornata** (poiché la routine normale genera solo le 2 baseline ODG 0 e ODG 1), presenta un bordo ambrato ben visibile, sfondo evidenziato e un badge con contatore (`+{editsCount}`) per consentire all'utente di individuare a colpo d'occhio i giorni in cui sono intervenute variazioni al programma.
+     - **Scansione Storica Approfondita del Filesystem**: l'endpoint `/api/odg/modifications` scansiona l'intero albero di cartelle locali (`YYYY-MM-DD`, `DD-MM-YYYY`, cartelle mensili `YYYY-MM/` e file sciolti) costruendo una mappa globale `datesSummary` di tutte le date esistenti, indipendentemente dalla data singola visualizzata nel viewer di dettaglio.
      - Indicatore verde discreto per i giorni con sola baseline regolare (invariata).
      - **Accesso rapido "Giorni con Variazioni Rilevate"**: elenco compatto di scorciatoie per saltare istantaneamente con un click a qualsiasi data che presenti modifiche.
    - **Visualizzatore Dettagli Giornata**:
