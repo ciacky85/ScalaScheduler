@@ -31,7 +31,7 @@ DEFAULT_CONFIG = {
     "output_file": "/data/odg_structured.json",
     "screenshots_dir": "/data/odg_shots",
     "enable_screenshots": True,
-    "schedules": ["07:00", "21:00"],
+    "schedules": ["00:02", "07:00", "21:00"],
     "poll_minutes": 5,
     "run_on_start": True
 }
@@ -556,11 +556,11 @@ def main():
                 time.sleep(1)
                 continue
 
-            # 2. Orario 00:02: scatto baseline per entrambe le pagine
+            # 2. Orario 00:02: scatto baseline per entrambe le pagine e push su Google Calendar
             if current_hhmm == "00:02" and last_baseline_date != current_date:
-                log("Rilevato orario 00:02: esecuzione scatto baseline per entrambe le pagine...")
+                log("Rilevato orario 00:02: esecuzione scatto baseline per entrambe le pagine e avvio pipeline completa con push...")
                 cfg = load_config()
-                run_once(cfg)
+                run_pipeline(cfg)
                 last_baseline_date = current_date
                 last_poll_time = time.time()
 

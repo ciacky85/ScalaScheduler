@@ -1,6 +1,6 @@
 {
-  "version": "2.2.0",
-  "label": "v2.2.0",
-  "buildDate": "2026-09-08",
-  "changelog": "v2.2.0: Calendario interattivo screenshot ODG, scansione storica completa del filesystem, rilevamento automatico modifiche (3+ screenshot o _edit.png) e badge di riconoscimento visivo"
+  "version": "2.2.1",
+  "label": "v2.2.1",
+  "buildDate": "2026-09-09",
+  "changelog": "v2.2.1: Fix sincronizzazione Google Calendar ODG (rimozione parametro errato privateExtendedProperty) e attivazione push automatico alle 00:02"
 }

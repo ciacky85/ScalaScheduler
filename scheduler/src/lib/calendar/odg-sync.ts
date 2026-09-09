@@ -6,7 +6,7 @@ import { JWT } from 'google-auth-library';
 import { getServiceAccount } from '@/lib/drive/google-drive';
 import { createHash } from 'crypto';
 import { add, format, parseISO } from 'date-fns';
-import { toZonedTime } from 'date-fns-tz';
+import { toZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 export interface ODGRowData {
   row_index: number;
@@ -334,15 +334,21 @@ export async function runOdgCalendarSync(options?: {
 
     const existingEvents = new Map<string, any>();
     for (const date of datesToSync) {
-      const timeMin = `${date}T00:00:00Z`;
-      const timeMax = `${date}T23:59:59Z`;
+      let timeMin: string;
+      let timeMax: string;
+      try {
+        timeMin = formatInTimeZone(new Date(`${date}T00:00:00`), TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+        timeMax = formatInTimeZone(new Date(`${date}T23:59:59`), TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+      } catch {
+        timeMin = `${date}T00:00:00+01:00`;
+        timeMax = `${date}T23:59:59+01:00`;
+      }
 
       const res = await calendar.events.list({
         calendarId,
         timeMin,
         timeMax,
         singleEvents: true,
-        privateExtendedProperty: ['odg_uid'],
       });
 
       res.data.items?.forEach(event => {
@@ -417,16 +423,21 @@ export async function runOdgCalendarSync(options?: {
 
     // Cancella eventi rimasti sul calendario ma non più presenti nel file sorgente
     for (const [uid, eventToDelete] of existingEvents.entries()) {
+      const dateToDelete = eventToDelete.extendedProperties?.private?.odg_date_iso;
+      // Sicurezza: cancella solo eventi appartenenti alle date effettivamente sincronizzate
+      if (dateToDelete && !datesToSync.has(dateToDelete)) {
+        continue;
+      }
       stats.deleted++;
-      const dateToDelete = eventToDelete.extendedProperties?.private?.odg_date_iso || 'unknown';
+      const effectiveDate = dateToDelete || 'unknown';
       const logDetail: DetailLog = {
         odg_uid: uid,
-        date: dateToDelete,
+        date: effectiveDate,
         action: 'delete',
         reason: 'event not in source',
       };
       details.push(logDetail);
-      await logSyncMessage(`  - [DELETE] ${uid} (Date: ${dateToDelete}): Non più presente nel sorgente.`);
+      await logSyncMessage(`  - [DELETE] ${uid} (Date: ${effectiveDate}): Non più presente nel sorgente.`);
       if (!dryRun && eventToDelete.id) {
         await calendar.events.delete({ calendarId, eventId: eventToDelete.id });
       }

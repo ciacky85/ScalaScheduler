@@ -3,12 +3,11 @@
 > **Progetto**: Chorus Calendar Sync (aka "ScalaScheduler")
 > **Autore**: ciacky85 (Carlo)
 > **Scopo**: Estrarre gli eventi dai programmi di lavoro del Coro del Teatro alla Scala (PDF e pagine web) e sincronizzarli su calendari Google tramite Service Account. Rilevare modifiche visive giornaliere con visual diffing e archiviare gli screenshot su Google Drive con autenticazione OAuth 2.0.
-> **Data analisi iniziale**: 01/09/2026
-> **Versione attuale**: **v2.2.0** (08/09/2026) — **Navigatore Screenshot a Calendario & Rilevamento Storico Variazioni**: Calendario web interattivo a griglia mensile per screenshot ODG con badge visivo evidenziato (`+{editsCount}`) per date con modifiche (3+ screenshot o `_edit.png`), scansione storica profonda del filesystem su tutti i formati cartella, dialog di confronto affiancato e viewer con zoom.
+> **Versione attuale**: **v2.2.1** (09/09/2026) — **Fix Google Calendar API & Push Notturno Automatico**: Correzione del parametro `privateExtendedProperty` errato in `odg-sync.ts` che causava errore 400 Bad Request, normalizzazione RFC3339 con timezone locale per la finestra giornaliera ed esecuzione automatica della pipeline completa con push su Google Calendar e Drive alle 00:02.
 
 ---
 
-## 1. Panoramica Architetturale (v2.2.0)
+## 1. Panoramica Architetturale (v2.2.1)
 
 A partire dalla release **v2.0.0** e consolidata con la **v2.1.0**, l'architettura opera in un **singolo container Docker unificato** multi-stage basato su `node:20-bookworm-slim` (Debian). La WebApp Next.js e il motore di scraping Python con Playwright Chromium comunicano localmente su `localhost:3000` con latenza zero.
 

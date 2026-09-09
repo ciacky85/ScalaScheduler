@@ -1,6 +1,6 @@
-# ScalaScheduler v2.2.0 — Chorus Calendar Sync & ODG Scraper
+# ScalaScheduler v2.2.1 — Chorus Calendar Sync & ODG Scraper
 
-[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](./version.json)
+[![Version](https://img.shields.io/badge/version-2.2.1-blue.svg)](./version.json)
 [![Docker](https://img.shields.io/badge/docker-single--container-green.svg)](./Dockerfile)
 [![Next.js](https://img.shields.io/badge/Next.js-15.3.3-black.svg)](https://nextjs.org/)
 [![Python](https://img.shields.io/badge/python-3.11-yellow.svg)](https://www.python.org/)
