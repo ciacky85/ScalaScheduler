@@ -2,8 +2,7 @@
 
 > **Progetto**: Chorus Calendar Sync (aka "ScalaScheduler")
 > **Autore**: ciacky85 (Carlo)
-> **Scopo**: Estrarre gli eventi dai programmi di lavoro del Coro del Teatro alla Scala (PDF e pagine web) e sincronizzarli su calendari Google tramite Service Account. Rilevare modifiche visive giornaliere con visual diffing e archiviare gli screenshot su Google Drive con autenticazione OAuth 2.0.
-> **Versione attuale**: **v2.2.1** (09/09/2026) — **Fix Google Calendar API & Push Notturno Automatico**: Correzione del parametro `privateExtendedProperty` errato in `odg-sync.ts` che causava errore 400 Bad Request, normalizzazione RFC3339 con timezone locale per la finestra giornaliera ed esecuzione automatica della pipeline completa con push su Google Calendar e Drive alle 00:02.
+> **Versione attuale**: **v2.2.2** (18/09/2026) — **Risoluzione Errore invalid_grant Google Drive, Fail-Fast Anticascata & Assistente Rinnovo OAuth**: Intercettazione immediata di `invalid_grant` al primo fallimento in `syncLocalShotsToDrive`, blocco della generazione a cascata di centinaia di cartelle, ripristino della gestione delle credenziali OAuth con diagnostica visiva nel tab Impostazioni e introduzione dello script interattivo `npm run drive-auth` per il rinnovo automatico del Refresh Token con pubblicazione "In produzione" su Google Cloud Console.
 
 ---
 
@@ -579,22 +578,23 @@ Modulo [`lib/drive/google-drive.ts`](file:///c:/Users/carlo/Desktop/ProgettiAnti
 | `createDriveAuth()` | **Autenticazione a priorità**: crea client `OAuth2Client` se sono configurate le credenziali utente (`oauthClientId`, `oauthClientSecret`, `oauthRefreshToken`) garantendo la **quota di archiviazione personale**; in fallback utilizza il client JWT con `service-account-key.json` |
 | `getDriveConfig()` | Legge `drive_config.json` cercandolo su `/app/config`, `/data`, o `public/` con fallback alle variabili d'ambiente |
 | `saveDriveConfig(config)` | Persiste la configurazione su `/app/config/drive_config.json` preservando inalterate le credenziali OAuth salvate |
+| `formatDriveErrorMessage(error)` | **Diagnostica intelligiente e fail-fast**: intercetta errori critici (`invalid_grant`, token revocato o quota insufficiente), fornendo messaggi azionabili e interrompendo all'istante l'iterazione su centinaia di cartelle |
 | `verifyDriveFolderAccess(folderId)` | Verifica l'accesso alla cartella con diagnostica avanzata (include `supportsAllDrives: true`) e visualizzazione del messaggio originale dell'API Google |
 | `syncLocalShotsToDrive()` | **Architettura Folder-First Diff a due fasi**: pre-carica l'albero cartelle di Drive con una singola chiamata, calcola il diff insiemistico con le cartelle locali, salta istantaneamente centinaia di cartelle storiche a costo zero e crea/carica solo le cartelle mancanti |
 | `uploadFileToFolder(folderId, path, file)` | Carica il singolo file immagine direttamente da disco tramite **stream nativo di Node.js (`fs.createReadStream`)**, eliminando problemi di buffer virtuali e garantendo upload in meno di 1 secondo per file |
 
-#### Algoritmo di Sincronizzazione a Due Fasi (Folder-First Diff)
+#### Algoritmo di Sincronizzazione a Due Fasi (Folder-First Diff) & Fail-Fast
 1. **Rilevamento dinamico cartella screenshot**: scansione dei percorsi candidati (`/data/odg_shots`, `/app/public/odg_shots`, ecc.) e selezione automatica della cartella con il maggior numero di sottocartelle data.
-2. **Pre-fetch in batch**: una sola chiamata `drive.files.list` per recuperare tutte le cartelle su Drive con `mimeType = folder`.
+2. **Pre-fetch in batch & Intercettazione `invalid_grant`**: una sola chiamata `drive.files.list` per recuperare tutte le cartelle su Drive con `mimeType = folder`. Se la chiamata fallisce per autenticazione (token scaduto), il processo termina all'istante con un singolo errore esplicativo invece di fallire su centinaia di creazioni a cascata.
 3. **Diff Insiemistico (Set Difference)**:
-   - `missingOnDriveDirs`: cartelle presenti in locale ma assenti su Drive. Vengono create ed i relativi screenshot caricati via stream.
+   - `missingOnDriveDirs`: cartelle presenti in locale ma assenti su Drive. Vengono create ed i relativi screenshot caricati via stream. Se durante la creazione emerge un errore di autorizzazione, il loop si interrompe immediatamente.
    - `existingOnDriveDirs`: cartelle storiche già presenti su Drive. Vengono saltate istantaneamente a costo computazionale nullo, evitando timeout HTTP (504).
    - **Cartella odierna (`isDateToday`)**: verifica specifica dei singoli file di oggi per caricare tempestivamente nuovi screenshot generati durante la giornata.
 
-#### Risoluzione Errore Quota Storage dei Service Account
-Google Drive impedisce ai Service Account di creare file in cartelle personali condivise restituendo l'errore:
-> `Service Accounts do not have storage quota. Leverage shared drives or use OAuth delegation instead.`
-ScalaScheduler risolve nativamente il problema consentendo l'inserimento delle credenziali **OAuth 2.0 (User Token)** in `drive_config.json`. Il sistema si autentica con l'identità e la quota dell'utente proprietario della cartella (15 GB+ di spazio).
+#### Risoluzione Errore Quota Storage dei Service Account e Token Scaduti (`invalid_grant`)
+- **Quota Storage**: Google Drive impedisce ai Service Account di creare file in cartelle personali condivise (`Service Accounts do not have storage quota`). ScalaScheduler risolve il problema con l'autenticazione **OAuth 2.0 (User Token)** in `drive_config.json`.
+- **Prevenzione Scadenza 7 Giorni (`invalid_grant`)**: Se l'app nella Google Cloud Console è impostata su *"In fase di test" (Testing)*, Google invalida i Refresh Token dopo 7 giorni. Per rendere il token permanente, è indispensabile impostare la Schermata di consenso su **"In produzione" (Pubblica app)**.
+- **Assistente di Rinnovo**: tramite lo script interattivo `npm run drive-auth`, l'amministratore può rinnovare il token con un singolo clic nel browser senza dover generare manualmente codici o modificare JSON. Inoltre, la scheda *Impostazioni* dell'interfaccia web permette di visualizzare e aggiornare le credenziali in qualsiasi momento.
 
 ### 3.12 Gestione Stato Applicazione
 

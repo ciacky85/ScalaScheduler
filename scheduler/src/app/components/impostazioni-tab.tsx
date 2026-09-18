@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import type { ImpostazioniCalendario } from '@/lib/types';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PlusCircle, Edit, Trash2, RefreshCw } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, RefreshCw, Key, AlertCircle } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -278,6 +278,7 @@ export default function ImpostazioniTab() {
   const [oauthClientId, setOauthClientId] = useState<string>('');
   const [oauthClientSecret, setOauthClientSecret] = useState<string>('');
   const [oauthRefreshToken, setOauthRefreshToken] = useState<string>('');
+  const [showOauth, setShowOauth] = useState<boolean>(false);
   const [driveStatus, setDriveStatus] = useState<{ type: 'idle' | 'success' | 'error'; message: string }>({
     type: 'idle',
     message: '',
@@ -458,6 +459,89 @@ export default function ImpostazioniTab() {
               onChange={(e) => setDriveUrl(e.target.value)}
               className="font-mono text-sm bg-background"
             />
+          </div>
+
+          {/* Sezione Credenziali OAuth 2.0 (Quota Utente Google Drive) */}
+          <div className="rounded-lg border p-4 bg-background space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <Key className="h-4 w-4 text-amber-500" />
+                  <span className="text-sm font-medium">Autenticazione OAuth 2.0 (Quota Storage Utente)</span>
+                  {oauthRefreshToken ? (
+                    <Badge variant="outline" className="border-green-500/40 text-green-700 dark:text-green-300 bg-green-500/10 text-xs">
+                      Configurato
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="border-destructive/40 text-destructive bg-destructive/10 text-xs">
+                      Non configurato
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  I Service Account non hanno quota di archiviazione per salvare file su cartelle personali (@gmail.com). OAuth 2.0 utilizza la tua quota personale.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowOauth(!showOauth)}
+                className="text-xs shrink-0"
+              >
+                {showOauth ? 'Nascondi Dettagli' : 'Configura / Modifica OAuth'}
+              </Button>
+            </div>
+
+            {showOauth && (
+              <div className="space-y-4 pt-3 border-t text-sm">
+                <div className="p-3 rounded-md bg-muted/40 text-xs text-muted-foreground space-y-1.5 border">
+                  <p className="font-semibold text-foreground flex items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+                    Come evitare che il token scada dopo 7 giorni:
+                  </p>
+                  <p>
+                    Su <strong>Google Cloud Console</strong> &rarr; <em>Schermata di consenso OAuth</em>, imposta lo stato su <strong>&quot;In produzione&quot;</strong> (Pubblica app). In questo modo il Refresh Token rimane valido indefinitamente.
+                  </p>
+                  <p>
+                    Per rinnovare il token via terminale esegui: <code className="bg-background px-1.5 py-0.5 rounded border text-foreground font-mono">npm run drive-auth</code>
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="oauthClientId" className="text-xs font-mono">OAuth Client ID</Label>
+                  <Input
+                    id="oauthClientId"
+                    placeholder="xxxx.apps.googleusercontent.com"
+                    value={oauthClientId}
+                    onChange={(e) => setOauthClientId(e.target.value)}
+                    className="font-mono text-xs bg-muted/30"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="oauthClientSecret" className="text-xs font-mono">OAuth Client Secret</Label>
+                  <Input
+                    id="oauthClientSecret"
+                    type="password"
+                    placeholder="GOCSPX-xxxx"
+                    value={oauthClientSecret}
+                    onChange={(e) => setOauthClientSecret(e.target.value)}
+                    className="font-mono text-xs bg-muted/30"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="oauthRefreshToken" className="text-xs font-mono">OAuth Refresh Token</Label>
+                  <Input
+                    id="oauthRefreshToken"
+                    type="password"
+                    placeholder="1//0xxxx"
+                    value={oauthRefreshToken}
+                    onChange={(e) => setOauthRefreshToken(e.target.value)}
+                    className="font-mono text-xs bg-muted/30"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between rounded-lg border p-4 bg-background">

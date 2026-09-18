@@ -1,4 +1,4 @@
-# ScalaScheduler — WebApp & Core (v2.2.1)
+# ScalaScheduler — WebApp & Core (v2.2.2)
 
 Applicazione Web principale sviluppata in **Next.js 15 (App Router)** e **TypeScript**.
 

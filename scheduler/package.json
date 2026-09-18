@@ -1,9 +1,10 @@
 {
   "name": "nextn",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack -p 9002",
+    "drive-auth": "node scripts/auth-drive.mjs",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
     "build": "next build",

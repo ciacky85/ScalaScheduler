@@ -175,6 +175,20 @@ export async function saveDriveConfig(config: Partial<DriveConfig>): Promise<Dri
   return updated;
 }
 
+export function formatDriveErrorMessage(error: any): string {
+  const rawMsg = error?.response?.data?.error_description ||
+                 error?.response?.data?.error?.message ||
+                 error?.message ||
+                 'Errore sconosciuto Google Drive';
+  if (rawMsg.includes('invalid_grant') || rawMsg.includes('expired or revoked')) {
+    return 'Token Google OAuth scaduto o revocato (invalid_grant). Se la schermata di consenso su Google Cloud Console è impostata su "In fase di test", Google invalida il token ogni 7 giorni. Per risolvere definitivamente: 1) Nella Google Cloud Console imposta l\'app su "In produzione" (Pubblica app); 2) Esegui "npm run drive-auth" oppure inserisci il nuovo Refresh Token nella scheda Impostazioni.';
+  }
+  if (rawMsg.includes('Service Accounts do not have storage quota')) {
+    return 'Google Drive Error (403): I Service Account di Google non possiedono quota di archiviazione per caricare file in cartelle personali (@gmail.com). Configura OAuth 2.0 per caricare con il tuo account utente.';
+  }
+  return `Errore Google Drive: ${rawMsg}`;
+}
+
 export async function verifyDriveFolderAccess(folderId: string): Promise<{ ok: boolean; folderName?: string; error?: string }> {
   try {
     if (!folderId) {
@@ -200,8 +214,7 @@ export async function verifyDriveFolderAccess(folderId: string): Promise<{ ok: b
       folderName: file.name || 'Cartella Google Drive',
     };
   } catch (error: any) {
-    const errorMsg = error?.response?.data?.error?.message || error?.message || 'Errore di connessione a Google Drive.';
-    return { ok: false, error: `Errore Google Drive: ${errorMsg}` };
+    return { ok: false, error: formatDriveErrorMessage(error) };
   }
 }
 
@@ -285,14 +298,7 @@ export async function uploadScreenshotToDrive(
       webViewLink: response.data.webViewLink || undefined,
     };
   } catch (error: any) {
-    const rawMsg = error?.response?.data?.error?.message || error.message || 'Errore durante il caricamento su Google Drive.';
-    if (rawMsg.includes('Service Accounts do not have storage quota')) {
-      return {
-        ok: false,
-        error: 'Google Drive Error (403): I Service Account di Google non possiedono quota di archiviazione per caricare file in cartelle personali (@gmail.com). Configura OAuth 2.0 per caricare con il tuo account utente.',
-      };
-    }
-    return { ok: false, error: rawMsg };
+    return { ok: false, error: formatDriveErrorMessage(error) };
   }
 }
 
@@ -399,7 +405,18 @@ export async function syncLocalShotsToDrive(): Promise<{
       pageToken = listRes.data?.nextPageToken || undefined;
     } while (pageToken);
   } catch (e: any) {
-    console.warn('[GoogleDrive] Errore caricamento cartelle Drive:', e.message);
+    const formatted = formatDriveErrorMessage(e);
+    console.error('[GoogleDrive] Errore caricamento cartelle Drive:', formatted);
+    // Se c'è un errore di autorizzazione o accesso alla cartella, interrompiamo immediatamente
+    // evitando categoricamente di ciclare su centinaia di cartelle locali generando centinaia di errori a cascata!
+    return {
+      ok: false,
+      totalFound: 0,
+      uploaded: 0,
+      skipped: 0,
+      partial: false,
+      errors: [formatted],
+    };
   }
 
   // 1b. Legge tutte le cartelle presenti in locale
@@ -515,7 +532,11 @@ export async function syncLocalShotsToDrive(): Promise<{
       driveFolderMap.set(normName, targetFolderId);
       createdFolderNames.push(normName);
     } catch (fErr: any) {
-      errors.push(`Creazione cartella ${normName}: ${fErr.message}`);
+      const formatted = formatDriveErrorMessage(fErr);
+      errors.push(`Creazione cartella ${normName}: ${formatted}`);
+      if (formatted.includes('invalid_grant') || formatted.includes('Quota') || formatted.includes('revocato')) {
+        break;
+      }
       continue;
     }
 
@@ -534,7 +555,11 @@ export async function syncLocalShotsToDrive(): Promise<{
         const ok = await uploadFileToFolder(targetFolderId, path.join(subDirPath, file), file);
         if (ok) uploadedCount++;
       } catch (upErr: any) {
-        errors.push(`${normName}/${file}: ${upErr.message}`);
+        const formatted = formatDriveErrorMessage(upErr);
+        errors.push(`${normName}/${file}: ${formatted}`);
+        if (formatted.includes('invalid_grant') || formatted.includes('Quota') || formatted.includes('revocato')) {
+          break;
+        }
       }
     }
   }
@@ -572,7 +597,11 @@ export async function syncLocalShotsToDrive(): Promise<{
               driveFilesSet.add(file);
             }
           } catch (upErr: any) {
-            errors.push(`${normToday}/${file}: ${upErr.message}`);
+            const formatted = formatDriveErrorMessage(upErr);
+            errors.push(`${normToday}/${file}: ${formatted}`);
+            if (formatted.includes('invalid_grant') || formatted.includes('Quota') || formatted.includes('revocato')) {
+              break;
+            }
           }
         }
       }

@@ -1,6 +1,6 @@
-# ScalaScheduler v2.2.1 — Chorus Calendar Sync & ODG Scraper
+# ScalaScheduler v2.2.2 — Chorus Calendar Sync & ODG Scraper
 
-[![Version](https://img.shields.io/badge/version-2.2.1-blue.svg)](./version.json)
+[![Version](https://img.shields.io/badge/version-2.2.2-blue.svg)](./version.json)
 [![Docker](https://img.shields.io/badge/docker-single--container-green.svg)](./Dockerfile)
 [![Next.js](https://img.shields.io/badge/Next.js-15.3.3-black.svg)](https://nextjs.org/)
 [![Python](https://img.shields.io/badge/python-3.11-yellow.svg)](https://www.python.org/)
@@ -158,9 +158,20 @@ services:
    ```
 2. Condividi i tuoi calendari Google con l'email del Service Account (`calendar-scheduler@...iam.gserviceaccount.com`) assegnando i permessi di **"Modifica agli eventi"**.
 
-### 2. Google Drive & Quota Storage (OAuth 2.0)
-I Service Account non dispongono di quota di archiviazione personale su cartelle Google Drive standard. Per salvare gli screenshot:
-1. Configura il file `/srv/docker_conf/configs/ScalaScheduler/config/drive_config.json`:
+### 2. Google Drive & Quota Storage (OAuth 2.0) — [AGGIORNATO v2.2.2]
+I Service Account non dispongono di quota di archiviazione personale su cartelle Google Drive standard (@gmail.com). Per salvare e sincronizzare gli screenshot:
+1. **Configurazione OAuth Permanente**:
+   - Nella **Google Cloud Console** &rarr; *APIs & Services* &rarr; *OAuth consent screen* (Schermata di consenso OAuth), assicurati che lo stato dell'app sia **"In produzione"** (Publish app).
+   - *(Importante: se lasciata "In fase di test", Google farà scadere il Refresh Token ogni 7 giorni con errore `invalid_grant`)*. Per uso personale non è richiesta alcuna verifica formale di Google.
+2. **Generazione / Rinnovo Automatico del Token**:
+   - Da terminale:
+     ```bash
+     cd scheduler
+     npm run drive-auth
+     ```
+     Il comando avvierà un mini-server locale, aprirà la schermata Google nel browser e salverà in automatico il nuovo `refresh_token` in `drive_config.json`.
+   - In alternativa, inserisci o modifica le credenziali direttamente dall'interfaccia grafica nella scheda **Impostazioni** (sezione *Autenticazione OAuth 2.0*).
+3. **File `drive_config.json`** (`/srv/docker_conf/configs/ScalaScheduler/config/drive_config.json`):
    ```json
    {
      "googleDriveFolderUrl": "https://drive.google.com/drive/folders/ID_CARTELLA",
@@ -171,7 +182,7 @@ I Service Account non dispongono di quota di archiviazione personale su cartelle
      "oauthRefreshToken": "1//TUO_REFRESH_TOKEN"
    }
    ```
-2. L'upload utilizzerà le credenziali utente con la quota del tuo account Google Drive, garantendo upload affidabili e senza limiti.
+4. **Protezione Fail-Fast**: se il token dovesse mai scadere, il motore di sincronizzazione intercetta `invalid_grant` al primo tentativo, bloccando a monte le creazioni a cascata e mostrando all'amministratore una diagnosi immediata.
 
 ---
 

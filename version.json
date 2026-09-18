@@ -1,6 +1,7 @@
 {
-  "version": "2.2.1",
-  "label": "v2.2.1",
-  "buildDate": "2026-09-09",
-  "changelog": "v2.2.1: Fix sincronizzazione Google Calendar ODG (rimozione parametro errato privateExtendedProperty) e attivazione push automatico alle 00:02"
+  "version": "2.2.2",
+  "label": "v2.2.2",
+  "buildDate": "2026-09-18",
+  "changelog": "v2.2.2: Risoluzione errore invalid_grant Google Drive, fail-fast anticascata, ripristino gestione credenziali OAuth in UI e script npm run drive-auth per rinnovo token"
 }
+
