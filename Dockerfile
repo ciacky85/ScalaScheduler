@@ -67,6 +67,7 @@ COPY odg-docker-scraper/main.py /app/scraper/main.py
 COPY --from=node-builder /app/scheduler/public ./public
 COPY --from=node-builder /app/scheduler/.next/standalone ./
 COPY --from=node-builder /app/scheduler/.next/static ./.next/static
+COPY scheduler/scripts ./scripts
 
 # Copia script entrypoint wrapper
 COPY scheduler/entrypoint-wrapper.sh /app/entrypoint-wrapper.sh

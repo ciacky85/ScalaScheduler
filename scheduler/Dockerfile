@@ -37,6 +37,7 @@ RUN apk add --no-cache tzdata curl jq
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY scripts ./scripts
 
 # Copia file entrypoint
 COPY entrypoint-wrapper.sh /app/entrypoint-wrapper.sh
